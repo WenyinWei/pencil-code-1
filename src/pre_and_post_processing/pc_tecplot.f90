@@ -5,7 +5,7 @@
 ! This file is derived from pc_collect.f90.
 !
 ! $Id$
-!***********************************************************************
+!
 program pc_tecplot
 !
 ! Zhenya: Who is using this program now?

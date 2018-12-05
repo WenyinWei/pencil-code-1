@@ -33,11 +33,11 @@ module Special
   use Cparam
   use Cdata
   use Diagnostics
-  use General, only: keep_compiler_quiet
+  use General, only: keep_compiler_quiet,numeric_precision
   use Messages, only: svn_id, fatal_error, warning
   use Mpicomm, only: mpibarrier,MPI_COMM_WORLD,MPI_INFO_NULL,mpireduce_min, mpireduce_max
 
-  use Sub, only: numeric_precision, dot_mn, dot_mn_vm, curl_mn, cross_mn, vec_dot_3tensor,dot2_mn
+  use Sub, only: dot_mn, dot_mn_vm, curl_mn, cross_mn, vec_dot_3tensor,dot2_mn
   use HDF5
   use File_io, only: parallel_unit
 !
@@ -73,21 +73,32 @@ module Special
                                               tensor_memoffsets, tensor_memcounts
   integer, parameter :: nscalars = 1
   integer(HID_T),   dimension(nscalars) :: scalar_id_D, scalar_id_S
-  integer(HSIZE_T), dimension(nscalars)  :: scalar_dims, &
-                                              scalar_offsets, scalar_counts, &
-                                              scalar_memdims, &
-                                              scalar_memoffsets, scalar_memcounts
+  integer(HSIZE_T), dimension(nscalars) :: scalar_dims, &
+                                           scalar_offsets, scalar_counts, &
+                                           scalar_memdims, &
+                                           scalar_memoffsets, scalar_memcounts
                                       
   ! Actual datasets
 
-  real, dimension(:,:,:,:,:,:)  , allocatable :: alpha_data, beta_data, &
-                                                 acoef_data
-  real, dimension(:,:,:,:,:)    , allocatable :: gamma_data, delta_data, &
-                                                 utensor_data
+  real, dimension(:,:,:,:,:,:)  , allocatable :: alpha_data, beta_data, acoef_data
+  real, dimension(:,:,:,:,:)    , allocatable :: gamma_data, delta_data, utensor_data
   real, dimension(:,:,:,:,:,:,:), allocatable :: kappa_data, bcoef_data
  
   real, dimension(:), allocatable :: tensor_times
 
+  logical, dimension(3,3)::lalpha_sym=reshape((/.false.,.true. ,.false., &
+                                                .true. ,.false.,.true. , &
+                                                .false.,.true. ,.false. /), shape(lalpha_sym)), &
+                           lbeta_sym =reshape((/.true. ,.false.,.true. , &
+                                                .false.,.true. ,.false., &
+                                                .true. ,.false.,.true.  /), shape(lbeta_sym))
+  logical, dimension(3) :: lgamma_sym  =[.true. ,.false.,.true. ], &
+                           ldelta_sym  =[.false.,.true. ,.false.], &
+                           lutensor_sym=[.true. ,.false.,.true. ]
+  logical, dimension(3,3,3)::lkappa_sym=reshape((/.false.,.true. ,.false.,.true. ,.false.,.true. ,.false.,.true.,.false., &
+                                                  .true. ,.false.,.true. ,.false.,.true. ,.false.,.true. ,.false.,.true., &
+                                                  .false.,.true. ,.false.,.true. ,.false.,.true. ,.false.,.true.,.false./), &
+                                                shape(lkappa_sym))
   ! Dataset mappings
 
   integer,parameter :: alpha_id=1, beta_id=2,    &
@@ -101,12 +112,12 @@ module Special
 
   ! Dataset logical variables
 
-  logical, dimension(3,3)   :: lalpha_arr, lbeta_arr, lacoef_arr
-  logical, dimension(3)     :: lgamma_arr, ldelta_arr, lutensor_arr
-  logical, dimension(3,3,3) :: lkappa_arr, lbcoef_arr
-  logical, dimension(6)     :: lalpha_c, lbeta_c, lacoef_c
-  logical, dimension(3)     :: lgamma_c, ldelta_c, lutensor_c
-  logical, dimension(3,3,3) :: lkappa_c, lbcoef_c
+  logical, dimension(3,3)  :: lalpha_arr, lbeta_arr, lacoef_arr
+  logical, dimension(3)    :: lgamma_arr, ldelta_arr, lutensor_arr
+  logical, dimension(3,3,3):: lkappa_arr, lbcoef_arr
+  logical, dimension(6)    :: lalpha_c, lbeta_c, lacoef_c
+  logical, dimension(3)    :: lgamma_c, ldelta_c, lutensor_c
+  logical, dimension(3,6)  :: lkappa_c, lbcoef_c
   logical :: lalpha, lbeta, lgamma, ldelta, lkappa, lutensor, lacoef, lbcoef, lusecoefs 
   logical :: lread_datasets=.true., lread_time_series=.false., lloop=.false.
   real :: alpha_scale, beta_scale, gamma_scale, delta_scale, kappa_scale, utensor_scale, acoef_scale, bcoef_scale
@@ -171,6 +182,11 @@ module Special
   real, dimension(nx)     :: tmpline
   real, dimension(nx,3)   :: tmppencil,emftmp
   real, dimension(nx,3,3) :: tmptensor
+!
+! special symmetries
+!
+  logical :: lsymmetrize=.false.
+  integer :: field_symmetry=0
 
   ! Input dataset name
   ! Input namelist
@@ -194,7 +210,7 @@ module Special
       lutensor, lutensor_c, utensor_name, utensor_scale, &
       lacoef,   lacoef_c,   acoef_name,   acoef_scale, &
       lbcoef,   lbcoef_c,   bcoef_name,   bcoef_scale, &
-      interpname, defaultname, lusecoefs, lloop
+      interpname, defaultname, lusecoefs, lloop, lsymmetrize, field_symmetry
 
 ! loadDataset interface
 
@@ -202,6 +218,11 @@ module Special
     module procedure loadDataset_rank1
     module procedure loadDataset_rank2
     module procedure loadDataset_rank3
+  end interface
+
+  interface symmetrize
+    module procedure symmetrize_3d
+    module procedure symmetrize_4d
   end interface
 
   contains
@@ -222,20 +243,20 @@ module Special
         call H5open_F(hdferr)                                              ! Initializes HDF5 library.
 
         if (numeric_precision() == 'S') then
-          if (lroot) write(*,*) 'initialize special: loading data as single precision'
+          if (lroot) write(*,*) 'register_special: loading data as single precision'
           hdf_memtype = H5T_NATIVE_REAL
         else
-          if (lroot) write(*,*) 'initialize special: loading data as double precision'
+          if (lroot) write(*,*) 'register_special: loading data as double precision'
           hdf_memtype = H5T_NATIVE_DOUBLE
         end if
           
-        if (lroot) write (*,*) 'initialize special: setting parallel HDF5 IO for data file reading'   !MR: Why parallel?
+        if (lroot) write (*,*) 'register_special: setting parallel HDF5 IO for data file reading'   !MR: Why parallel?
         call H5Pcreate_F(H5P_FILE_ACCESS_F, hdf_emftensors_plist, hdferr)   ! Creates porperty list for HDF5 file.
 
 !        if (lmpicomm) &     !MR: doesn't work for nompicomm
 !          call H5Pset_fapl_mpio_F(hdf_emftensors_plist, MPI_COMM_WORLD, MPI_INFO_NULL, hdferr)
 
-        if (lroot) print *, 'initialize special: opening emftensors.h5 and loading relevant fields into memory...'
+        if (lroot) print *, 'register_special: opening emftensors.h5 and loading relevant fields into memory...'
 
         hdf_emftensors_filename = trim(datadir_snap)//'/emftensors.h5'
 
@@ -244,7 +265,7 @@ module Special
         if (.not. hdf_exists) then                                        ! If HDF5 file doesn't exist:
           call H5Pclose_F(hdf_emftensors_plist, hdferr)                   ! Terminates access to property list.
           call H5close_F(hdferr)                                          ! Frees resources used by library.
-          call fatal_error('initialize_special','File '//trim(hdf_emftensors_filename)//' does not exist!')
+          call fatal_error('register_special','File '//trim(hdf_emftensors_filename)//' does not exist!')
         end if
 !
 ! Opens HDF5 file for read access only, returns file identifier hdf_emftensors_file.
@@ -259,13 +280,12 @@ module Special
           call H5Fclose_F(hdf_emftensors_file, hdferr)                     ! Terminates access to HDF5 file.
           call H5Pclose_F(hdf_emftensors_plist, hdferr)
           call H5close_F(hdferr)
-          call fatal_error('initialize_special','group /emftensor/ does not exist!')
+          call fatal_error('register_special','group /emftensor/ does not exist!')
         end if
 
         call H5Gopen_F(hdf_emftensors_file, 'emftensor', hdf_emftensors_group, hdferr) ! Opens group emftensor in HDF5 file.
 
       endif
-
 !!      call farray_register_pde('special',ispecial)
 !!      call farray_register_auxiliary('specaux',ispecaux)
 !!      call farray_register_auxiliary('specaux',ispecaux,communicated=.true.)
@@ -500,13 +520,99 @@ module Special
           endif
         end if
 
-        ! Open datasets
-
         lread_datasets=.true.
 
       endif
-   
+!
     endsubroutine initialize_special
+!***********************************************************************
+    subroutine symmetrize_4d(arr,lsym)
+
+      use Mpicomm, only: mpisendrecv_real,mpibarrier,MPI_ANY_TAG
+      use General, only: find_proc
+
+      real, dimension(:,:,:,:), intent(INOUT) :: arr
+      logical                 , intent(IN)    :: lsym
+
+      integer :: len_theta,len_theta_h,symthproc
+      integer, dimension(4) :: sz
+      logical :: lmiddle
+      real, dimension(:,:,:,:), allocatable :: buffer
+
+      len_theta=size(arr,3); len_theta_h=floor(len_theta/2.)
+      lmiddle=mod(nprocy,2)/=0.and.ipy==floor(nprocy/2.)
+      sz=(/size(arr,1),size(arr,2),len_theta,size(arr,4)/)
+
+      if (lmiddle) then
+
+        if (lsym) then
+          arr(:,:,:len_theta_h,:) = 0.5*(arr(:,:,:len_theta_h,:)+arr(:,:,len_theta:len_theta_h:-1,:))
+          arr(:,:,len_theta:len_theta_h:-1,:) = arr(:,:,:len_theta_h,:)
+        else
+          arr(:,:,:len_theta_h,:) = 0.5*(arr(:,:,:len_theta_h,:)-arr(:,:,len_theta:len_theta_h:-1,:))
+          arr(:,:,len_theta:len_theta_h:-1,:) = -arr(:,:,:len_theta_h,:)
+        endif
+
+      else
+
+        allocate(buffer(sz(1),sz(2),sz(3),sz(4)))
+        symthproc=find_proc(ipx,nprocy-1-ipy,ipz)
+        call mpisendrecv_real(arr,sz,symthproc,iproc,buffer,symthproc,symthproc)
+
+        if (lsym) then
+          arr = 0.5*(arr+buffer(:,:,len_theta:1:-1,:))
+        else
+          arr = 0.5*(arr-buffer(:,:,len_theta:1:-1,:))
+        endif
+
+      endif
+      call mpibarrier
+
+    endsubroutine symmetrize_4d
+!***********************************************************************
+    subroutine symmetrize_3d(arr,lsym)
+
+      use Mpicomm, only: mpisendrecv_real,mpibarrier,MPI_ANY_TAG
+      use General, only: find_proc
+
+      real, dimension(:,:,:), intent(INOUT) :: arr
+      logical               , intent(IN)    :: lsym
+
+      integer :: len_theta,len_theta_h,symthproc
+      integer, dimension(3) :: sz
+      logical :: lmiddle
+      real, dimension(:,:,:), allocatable :: buffer
+
+      len_theta=size(arr,2); len_theta_h=floor(len_theta/2.)
+      lmiddle=mod(nprocy,2)/=0.and.ipy==floor(nprocy/2.)
+      sz=(/size(arr,1),len_theta,size(arr,3)/)
+
+      if (lmiddle) then
+
+        if (lsym) then
+          arr(:,:len_theta_h,:) = 0.5*(arr(:,:len_theta_h,:)+arr(:,len_theta:len_theta_h:-1,:))
+          arr(:,len_theta:len_theta_h:-1,:) = arr(:,:len_theta_h,:)
+        else
+          arr(:,:len_theta_h,:) = 0.5*(arr(:,:len_theta_h,:)-arr(:,len_theta:len_theta_h:-1,:))
+          arr(:,len_theta:len_theta_h:-1,:) = -arr(:,:len_theta_h,:)
+        endif
+
+      else
+
+        allocate(buffer(sz(1),sz(2),sz(3)))
+        symthproc=find_proc(ipx,nprocy-1-ipy,ipz)
+        call mpisendrecv_real(arr,sz,symthproc,iproc,buffer,symthproc,MPI_ANY_TAG)  ! symthproc
+
+        if (lsym) then
+          arr = 0.5*(arr+buffer(:,len_theta:1:-1,:))
+        else
+          arr = 0.5*(arr-buffer(:,len_theta:1:-1,:))
+        endif
+
+      endif
+      call mpibarrier
+
+    endsubroutine symmetrize_3d
 !***********************************************************************
     subroutine finalize_special(f)
 !
@@ -563,9 +669,10 @@ module Special
 !
 !  06-jul-06/tony: coded
 !
-      real, dimension (mx,my,mz,mfarray), intent(in) :: f
+      real, dimension (mx,my,mz,mfarray), intent(INOUT) :: f
 !
       real :: delt
+      integer :: i,j,k
 
       call keep_compiler_quiet(f)
 
@@ -586,7 +693,7 @@ module Special
               delt=2*tensor_times(tensor_times_len)-tensor_times(1)-tensor_times(tensor_times_len-1)
               tensor_times = tensor_times+delt
             else
-              call fatal_error('dspecial_dt', 'no more data to load') 
+              call fatal_error('special_before_boundary', 'no more data to load') 
             endif
           endif
 if (lread_time_series) then
@@ -605,10 +712,36 @@ endif
           if (lbcoef) call loadDataset(bcoef_data, lbcoef_arr, bcoef_id, iload-1,'Bcoef')
           lread_datasets=.false.
 
-        end if
+          if (lsymmetrize) then
+            do i=1,3 
+              if (lgamma) call symmetrize(gamma_data(:,:,:,:,i),lgamma_sym(i))
+              if (ldelta) call symmetrize(delta_data(:,:,:,:,i),ldelta_sym(i))
+              if (lutensor) call symmetrize(utensor_data(:,:,:,:,i),lutensor_sym(i))
+              do j=1,3
+                if (lalpha) call symmetrize(alpha_data(:,:,:,:,i,j),lalpha_sym(i,j))
+                if (lbeta) call symmetrize(beta_data(:,:,:,:,i,j),lbeta_sym(i,j))
+                do k=1,3
+                  if (lkappa) call symmetrize(kappa_data(:,:,:,:,i,j,k),lkappa_sym(i,j,k))
+                enddo
+              enddo
+            enddo
+          else
+            field_symmetry=0
+          endif
 
+        end if
       end if
-!
+
+      if (field_symmetry==1) then
+        call symmetrize_3d(f(:,:,:,iax),.false.)
+        call symmetrize_3d(f(:,:,:,iay),.true.)
+        call symmetrize_3d(f(:,:,:,iaz),.false.)
+      elseif (field_symmetry==-1) then
+        call symmetrize_3d(f(:,:,:,iax),.true.)
+        call symmetrize_3d(f(:,:,:,iay),.false.)
+        call symmetrize_3d(f(:,:,:,iaz),.true.)
+      endif
+
     endsubroutine special_before_boundary
 !***********************************************************************
     subroutine pencil_criteria_special
@@ -628,126 +761,143 @@ endif
 !
 !  24-nov-04/tony: coded
 !
+      use General, only: notanumber
+
       real, dimension (mx,my,mz,mfarray) :: f
       type (pencil_case) :: p
 !
       intent(in) :: f
       intent(inout) :: p
 !
-      integer i,j,k
+      integer :: i,j,k, ind(1)
 !
       call keep_compiler_quiet(f)
+!
+! Calculate emf pencil
+!
+      p%emf = 0
 !
       if (lalpha) then
         ! Calculate alpha B
         do j=1,3; do i=1,3
           if (lalpha_arr(i,j)) then
-            p%alpha_coefs(1:nx,i,j)=emf_interpolate(alpha_data(1:dataload_len,1:nx,m-nghost,n-nghost,i,j))
+            p%alpha_coefs(:,i,j)=emf_interpolate(alpha_data(1:dataload_len,:,m-nghost,n-nghost,i,j))
           else
-            p%alpha_coefs(1:nx,i,j)=0
+            p%alpha_coefs(:,i,j)=0
           end if
         end do; end do
         call dot_mn_vm(p%bb,p%alpha_coefs,p%alpha_emf)
+        p%emf = p%emf + p%alpha_emf
       end if
+!
       if (lbeta) then
         ! Calculate beta (curl B)
         do j=1,3; do i=1,3
           if (lbeta_arr(i,j)) then
-            p%beta_coefs(1:nx,i,j)=emf_interpolate(beta_data(1:dataload_len,1:nx,m-nghost,n-nghost,i,j))
+            p%beta_coefs(:,i,j)=emf_interpolate(beta_data(1:dataload_len,:,m-nghost,n-nghost,i,j))
           else
-            p%beta_coefs(1:nx,i,j)=0
+            p%beta_coefs(:,i,j)=0
           end if
         end do; end do
         call dot_mn_vm(p%jj,p%beta_coefs,p%beta_emf)
+        p%emf = p%emf - p%beta_emf
       end if
+!
       if (lgamma) then
         ! Calculate gamma x B
         do i=1,3
           if (lgamma_arr(i)) then
-            p%gamma_coefs(1:nx,i)=emf_interpolate(gamma_data(1:dataload_len,1:nx,m-nghost,n-nghost,i))
+            p%gamma_coefs(:,i)=emf_interpolate(gamma_data(1:dataload_len,:,m-nghost,n-nghost,i))
           else
-            p%gamma_coefs(1:nx,i)=0
+            p%gamma_coefs(:,i)=0
           end if
         end do
         call cross_mn(p%gamma_coefs,p%bb,p%gamma_emf)
+        p%emf = p%emf + p%gamma_emf
       end if
+!
       if (ldelta) then
         ! Calculate delta x (curl B)
         do i=1,3
           if (ldelta_arr(i)) then
-            p%delta_coefs(1:nx,i)=emf_interpolate(delta_data(1:dataload_len,1:nx,m-nghost,n-nghost,i))
+            p%delta_coefs(:,i)=emf_interpolate(delta_data(1:dataload_len,:,m-nghost,n-nghost,i))
           else
-            p%delta_coefs(1:nx,i)=0
+            p%delta_coefs(:,i)=0
           end if
         end do
         call cross_mn(p%delta_coefs,p%jj,p%delta_emf)
+        p%emf = p%emf - p%delta_emf
       end if
+
+if (.false.) then
+!if (any(sum(sum(p%bij_symm**2,3),2)/sum(p%jj**2,2)>1e5 .and. sum(p%jj**2,2)>1e-4)) then
+  print*, 'big b_ij, m=',m 
+  ind=maxloc(sum(sum(p%bij_symm**2,3),2)/sum(p%jj**2,2))
+  print*, 'maxind=', ind, maxval(sum(sum(p%bij_symm**2,3),2)), sum(p%jj(ind,:)**2)
+  print*, 'bij=', p%bij_symm(ind,:,:)
+endif
       if (lkappa) then
         ! Calculate kappa (grad B)_symm
         do j=1,3; do i=1,3
-          p%bij_symm(1:nx,i,j)=0.5*(p%bij(1:nx,i,j) + p%bij(1:nx,j,i))
+          p%bij_symm(:,i,j)=0.5*(p%bij(:,i,j) + p%bij(:,j,i))
         end do; end do
+
         do k=1,3; do j=1,3; do i=1,3
-          p%kappa_coefs(1:nx,i,j,k)=emf_interpolate(kappa_data(1:dataload_len,1:nx,m-nghost,n-nghost,i,j,k))
+          if (lkappa_arr(i,j,k)) then
+            p%kappa_coefs(:,i,j,k)=emf_interpolate(kappa_data(1:dataload_len,:,m-nghost,n-nghost,i,j,k))
+          else
+            p%kappa_coefs(:,i,j,k)=0
+          endif
         end do; end do; end do
+
         p%kappa_emf = 0
         do k=1,3; do j=1,3; do i=1,3
-          p%kappa_emf(1:nx,i)=p%kappa_emf(1:nx,i)+p%kappa_coefs(1:nx,i,j,k)*p%bij_symm(1:nx,j,k)
+          if (lkappa_arr(i,j,k)) &
+            p%kappa_emf(:,i)=p%kappa_emf(:,i)+p%kappa_coefs(:,i,j,k)*p%bij_symm(:,j,k)
         end do; end do; end do
+        p%emf = p%emf - p%kappa_emf
       end if
+!
       if (lutensor) then
         ! Calculate utensor x B
         do i=1,3
           if (lutensor_arr(i)) then
-            p%utensor_coefs(1:nx,i)=emf_interpolate(utensor_data(1:dataload_len,1:nx,m-nghost,n-nghost,i))
+            p%utensor_coefs(:,i)=emf_interpolate(utensor_data(1:dataload_len,:,m-nghost,n-nghost,i))
           else
-            p%utensor_coefs(1:nx,i)=0
+            p%utensor_coefs(:,i)=0
           end if
         end do
         call cross_mn(p%utensor_coefs,p%bb,p%utensor_emf)
+        p%emf = p%emf + p%utensor_emf
       end if
+!
       if (lacoef) then
         ! Calculate acoef B
         do j=1,3; do i=1,3
           if (lacoef_arr(i,j)) then
-            p%acoef_coefs(1:nx,i,j)=emf_interpolate(acoef_data(1:dataload_len,1:nx,m-nghost,n-nghost,i,j))
+            p%acoef_coefs(:,i,j)=emf_interpolate(acoef_data(1:dataload_len,:,m-nghost,n-nghost,i,j))
           else
-            p%acoef_coefs(1:nx,i,j)=0
+            p%acoef_coefs(:,i,j)=0
           end if
         end do; end do
         call dot_mn_vm(p%bb,p%acoef_coefs,p%acoef_emf)
       end if
+!
       if (lbcoef) then
         ! Calculate bcoef (grad B)
         do k=1,3; do j=1,3; do i=1,3
-          p%bcoef_coefs(1:nx,i,j,k)=emf_interpolate(bcoef_data(1:dataload_len,1:nx,m-nghost,n-nghost,i,j,k))
+          if (lbcoef_arr(i,j,k)) then
+            p%bcoef_coefs(:,i,j,k)=emf_interpolate(bcoef_data(1:dataload_len,:,m-nghost,n-nghost,i,j,k))
+          else
+            p%bcoef_coefs(:,i,j,k)=0
+          end if
         end do; end do; end do
+
         p%bcoef_emf = 0
         do k=1,3; do j=1,3; do i=1,3
-          p%bcoef_emf(1:nx,i)=p%bcoef_emf(1:nx,i)+p%bcoef_coefs(1:nx,i,j,k)*p%bij(1:nx,j,k)
+          if (lbcoef_arr(i,j,k)) &
+            p%bcoef_emf(:,i)=p%bcoef_emf(:,i)+p%bcoef_coefs(:,i,j,k)*p%bij(:,j,k)
         end do; end do; end do
-      end if
-!
-! Calculate emf pencil
-!
-      p%emf = 0
-      if (lalpha) then
-        p%emf = p%emf + p%alpha_emf
-      end if
-      if (lbeta) then
-        p%emf = p%emf - p%beta_emf
-      end if
-      if (lgamma) then
-        p%emf = p%emf + p%gamma_emf
-      end if
-      if (ldelta) then
-        p%emf = p%emf - p%delta_emf
-      end if
-      if (lkappa) then
-        p%emf = p%emf - p%kappa_emf
-      end if
-      if (lutensor) then
-        p%emf = p%emf + p%utensor_emf
       end if
 !
     endsubroutine calc_pencils_special
@@ -793,7 +943,6 @@ endif
 !
       if (ldiagnos) then
 
-        emftmp = p%acoef_emf + p%bcoef_emf + p%utensor_emf
         tmppencil = emftmp - p%emf
         !
         if (idiag_alphaxmax/=0) call max_mn_name(p%alpha_emf(:,1),idiag_alphaxmax)
@@ -929,6 +1078,8 @@ endif
 !
 !  06-oct-03/tony: coded
 !
+!!      use FArrayManager, only: farray_index_append
+!
       integer :: iname
       logical :: lreset,lwr
       logical, optional :: lwrite
@@ -993,7 +1144,7 @@ endif
 !!
 !!!  write column where which magnetic variable is stored
 !!      if (lwr) then
-!!        write(3,*) 'idiag_SPECIAL_DIAGNOSTIC=',idiag_SPECIAL_DIAGNOSTIC
+!!        call farray_index_append('idiag_SPECIAL_DIAGNOSTIC',idiag_SPECIAL_DIAGNOSTIC)
 !!      endif
 !!
       do iname=1,nname
@@ -1060,7 +1211,7 @@ endif
       real :: diffus_tmp
       type (pencil_case), intent(in) :: p
       integer :: i,j,k
-! 
+!
       call keep_compiler_quiet(f)
 !
 ! Overwrite with a and b coefs if needed
@@ -1068,7 +1219,7 @@ endif
       if (lusecoefs) then
         emftmp=0
         if (lacoef) emftmp = emftmp + p%acoef_emf
-        if (lbcoef) emftmp = emftmp + p%bcoef_emf
+        if (lbcoef) emftmp = emftmp - p%bcoef_emf
         if (lutensor) emftmp = emftmp + p%utensor_emf
       else
         emftmp = p%emf
@@ -1176,9 +1327,10 @@ endif
       ! Get dataspace dimensions in tensor_dims.
       ndims = tensor_ndims(tensor_id)
       call H5Sget_simple_extent_dims_F(tensor_id_S(tensor_id), &
-                                       dimsizes(1:ndims), &
+                                       dimsizes, &
                                        maxdimsizes(1:ndims), &
                                        hdferr)                 !MR: hdferr/=0!
+print*, 'from H5Sget_simple_extent_dims_F, line 1330: hdferr=', hdferr
       call H5Sget_simple_extent_npoints_F(tensor_id_S(tensor_id),num,hdferr) ! This is to mask the error of the preceding call.
       tensor_dims(tensor_id,1:ndims)=dimsizes(1:ndims)
       if (tensor_times_len==-1) then
@@ -1285,6 +1437,8 @@ endif
     subroutine loadDataset_rank1(dataarray, datamask, tensor_id, loadstart,name)
 
       ! Load a chunk of data for a vector, beginning at loadstart
+    
+      use General, only: itoa
 
       real, dimension(:,:,:,:,:), intent(inout) :: dataarray
       logical, dimension(3), intent(in) :: datamask
@@ -1349,7 +1503,7 @@ endif
         if (present(name)) then
           call mpireduce_min(tensor_minvals(tensor_id),globmin)
           call mpireduce_max(tensor_maxvals(tensor_id),globmax)
-          if (lroot) write (*,*) trim(name)//'( ', i, ')  min/max:', globmin, globmax
+          if (lroot) write (*,*) trim(name)//'(', trim(itoa(i)), ')  min/max:', globmin, globmax
         endif
       sum = sum + tensor_maxvals(tensor_id)*tensor_maxvals(tensor_id)
       enddo
@@ -1363,6 +1517,8 @@ endif
     subroutine loadDataset_rank2(dataarray, datamask, tensor_id, loadstart,name)
 
       ! Load a chunk of data for a 2-rank tensor, beginning at loadstart
+
+      use General, only: itoa
 
       real, dimension(:,:,:,:,:,:), intent(inout) :: dataarray
       logical, dimension(3,3), intent(in) :: datamask
@@ -1396,6 +1552,7 @@ endif
 !          print '(a,a,6(1x,i3))', 'tensor counts',name,tensor_counts(tensor_id,:ndims)
 !          print '(a,a,6(1x,i3))', 'tensor memcounts',name,tensor_memcounts(tensor_id,:ndims)
 
+print*, 'before H5Sselect_hyperslab_F for file'
           call H5Sselect_hyperslab_F(tensor_id_S(tensor_id), H5S_SELECT_OR_F, &
                                      tensor_offsets(tensor_id,1:ndims),       &
                                      tensor_counts(tensor_id,1:ndims),        &
@@ -1405,6 +1562,7 @@ endif
                            'for /grid/'//name)
            end if
           ! Hyperslab for memory
+print*, 'before H5Sselect_hyperslab_F for memory'
           call H5Sselect_hyperslab_F(tensor_id_memS(tensor_id), H5S_SELECT_OR_F, &
                                      tensor_memoffsets(tensor_id,1:ndims),        &
                                      tensor_memcounts(tensor_id,1:ndims),         &
@@ -1419,6 +1577,7 @@ endif
 
       ! Read data into memory
       tensor_dims(tensor_id,ndims-1:ndims)=3
+print*, 'before H5Dread_F'
       call H5Dread_F(tensor_id_D(tensor_id), hdf_memtype, dataarray, &
                      tensor_dims(tensor_id,1:ndims), hdferr, &
                      tensor_id_memS(tensor_id), tensor_id_S(tensor_id))
@@ -1434,7 +1593,8 @@ endif
         if (present(name)) then
           call mpireduce_min(tensor_minvals(tensor_id),globmin)
           call mpireduce_max(tensor_maxvals(tensor_id),globmax)
-          if (i == j .and. lroot) write (*,*) trim(name)//'( ', i, ',', j,' ) min/max: ', globmin, globmax
+          if (i == j .and. lroot) write (*,*) trim(name)// &
+            '(', trim(itoa(i)), ',', trim(itoa(j)),') min/max: ', globmin, globmax
         endif
         sum = sum + tensor_maxvals(tensor_id)*tensor_maxvals(tensor_id)
       enddo ; enddo
@@ -1578,6 +1738,8 @@ endif
     end subroutine setParameterDefaults
 !***********************************************************************
     subroutine parseParameters
+ 
+    integer :: i
 !
 ! Load boolean array for alpha
 !
@@ -1593,7 +1755,6 @@ endif
         lalpha_arr(3,2) = lalpha_c(5)
         lalpha_arr(3,3) = lalpha_c(6)
       else if (lalpha) then
-        lalpha     = .true.
         lalpha_arr = .true.
       end if
 !
@@ -1611,74 +1772,101 @@ endif
         lbeta_arr(3,2) = lbeta_c(5)
         lbeta_arr(3,3) = lbeta_c(6)
       else if (lbeta) then
-        lbeta     = .true.
         lbeta_arr = .true.
       end if
 !
 ! Load boolean array for gamma
 !
       if (any(lgamma_c)) then
+        lgamma = .true.
         lgamma_arr  = lgamma_c
       else if (lgamma) then
-        lgamma      = .true.
         lgamma_arr  = .true.
       end if
 !
 ! Load boolean array for delta
 !
       if (any(ldelta_c)) then
+        ldelta = .true.
         ldelta_arr  = ldelta_c
       else if (ldelta) then
-        ldelta      = .true.
         ldelta_arr  = .true.
       end if
 !
 ! Load boolean array for kappa
-! TODO: implement kappa components
 !
-      if (lkappa) then
+      if (any(lkappa_c)) then
+        lkappa = .true.
+        do i=1,3
+          lkappa_arr(i,1,1) = lkappa_c(i,1)
+          lkappa_arr(i,2,1) = lkappa_c(i,2)
+          lkappa_arr(i,1,2) = lkappa_c(i,2)
+          lkappa_arr(i,3,1) = lkappa_c(i,3)
+          lkappa_arr(i,1,3) = lkappa_c(i,3)
+          lkappa_arr(i,2,2) = lkappa_c(i,4)
+          lkappa_arr(i,2,3) = lkappa_c(i,5)
+          lkappa_arr(i,3,2) = lkappa_c(i,5)
+          lkappa_arr(i,3,3) = lkappa_c(i,6)
+        enddo
+      elseif (lkappa) then
         lkappa_arr = .true.
-      else
-        lkappa_arr = .false.
       end if
 !
 ! Load boolean array for acoef
-! TODO: implement acoef components
 !
-      if (lacoef) then
-        lacoef_arr = .true.
+      if (any(lacoef_c)) then
+        lacoef=.true.
+        lacoef_arr(1,1) = lacoef_c(1)
+        lacoef_arr(2,1) = lacoef_c(2)
+        lacoef_arr(1,2) = lacoef_c(2)
+        lacoef_arr(3,1) = lacoef_c(3)
+        lacoef_arr(1,3) = lacoef_c(3)
+        lacoef_arr(2,2) = lacoef_c(4)
+        lacoef_arr(2,3) = lacoef_c(5)
+        lacoef_arr(3,2) = lacoef_c(5)
+        lacoef_arr(3,3) = lacoef_c(6)
         if (any([lalpha,lgamma])) then
           if (lroot) call warning('initialize_special', &
             'lacoef=T overrides settings of lalpha and lgamma')     
+          lalpha=.false.; lgamma=.false.
+          lalpha_arr = .false.; lgamma_arr = .false.
         endif
-        lalpha=.false.; lgamma=.false.
-        lalpha_arr = .false.; lgamma_arr = .false.
-      else
-        lacoef_arr = .false.
+      elseif (lacoef) then
+        lacoef_arr = .true.
       end if
 !
 ! Load boolean array for bcoef
-! TODO: implement bcoef components
 !
-      if (lbcoef) then
-        lbcoef_arr = .true.
+      if (any(lbcoef_c)) then
+        lbcoef = .true.
+        do i=1,3
+          lbcoef_arr(i,1,1) = lbcoef_c(i,1)
+          lbcoef_arr(i,2,1) = lbcoef_c(i,2)
+          lbcoef_arr(i,1,2) = lbcoef_c(i,2)
+          lbcoef_arr(i,3,1) = lbcoef_c(i,3)
+          lbcoef_arr(i,1,3) = lbcoef_c(i,3)
+          lbcoef_arr(i,2,2) = lbcoef_c(i,4)
+          lbcoef_arr(i,2,3) = lbcoef_c(i,5)
+          lbcoef_arr(i,3,2) = lbcoef_c(i,5)
+          lbcoef_arr(i,3,3) = lbcoef_c(i,6)
+        enddo
         if (any([lbeta,ldelta,lkappa])) then
           if (lroot) call warning('initialize_special', &
             'lbcoef=T overrides settings of lbeta,ldelta,lkappa')     
+          lbeta=.false.; lbeta_arr = .false.
+          ldelta=.false.; ldelta_arr = .false.
+          lkappa=.false.; lkappa_arr = .false.
         endif
-        lbeta=.false.; lbeta_arr = .false.
-        ldelta=.false.; ldelta_arr = .false.
-        lkappa=.false.; lkappa_arr = .false.
-      else
-        lbcoef_arr = .false.
+      elseif (lbcoef) then
+        lbcoef_arr = .true.
       end if
 !
 ! Load boolean array for utensor
 !
       if (any(lutensor_c)) then
+        lutensor = .true.
         lutensor_arr  = lutensor_c
       else if (lutensor) then
-        lutensor      = .true.
         lutensor_arr  = .true.
       end if
 !

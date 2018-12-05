@@ -355,6 +355,7 @@ module Special
 !   06-oct-03/tony: coded
 !
       use Diagnostics
+      use FArrayManager, only: farray_index_append
 !
 !  define diagnostics variable
 !
@@ -381,8 +382,8 @@ module Special
 !
 !  write column where which magnetic variable is stored
       if (lwr) then
-        write(3,*) 'i_dtcrad=',idiag_dtcrad
-        write(3,*) 'i_dtchi=',idiag_dtchi
+        call farray_index_append('i_dtcrad',idiag_dtcrad)
+        call farray_index_append('i_dtchi',idiag_dtchi)
       endif
 !
     endsubroutine rprint_special
@@ -790,7 +791,7 @@ module Special
 !
     endsubroutine special_boundconds
 !***********************************************************************
-   subroutine special_after_timestep(f,df,dt_)
+   subroutine special_after_timestep(f,df,dt_,llast)
 !
 !  Possibility to modify the f and df after df is updated.
 !  Used for the Fargo shift, for instance.
@@ -802,13 +803,13 @@ module Special
 
 !      use Dustdensity
 !
+      logical, intent(in) :: llast
       real, dimension(mx,my,mz,mfarray), intent(inout) :: f
       real, dimension(mx,my,mz,mvar), intent(inout) :: df
       real, intent(in) :: dt_
       integer :: k,i,i1,i2,i3
       integer :: j
       real, dimension (ndustspec) :: S,x2
-!
 !
       if (.not. ldustdensity_log) then
       do i1=l1,l2

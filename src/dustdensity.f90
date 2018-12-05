@@ -167,7 +167,7 @@ module Dustdensity
 !
 !   4-jun-02/axel: adapted from hydro
 !
-      use FArrayManager, only: farray_register_pde
+      use FArrayManager, only: farray_register_pde, farray_index_append
       use General, only: itoa
 !
       integer :: k, i, ind_tmp, imd_tmp, imi_tmp, dc_tmp
@@ -181,11 +181,9 @@ module Dustdensity
         call farray_register_pde('nd'//sdust,ind_tmp)
         ind(k) = ind_tmp
       enddo
-      if (lroot .and. ndustspec/=1) then
-        open(3,file=trim(datadir)//'/index.pro', position='append')
-        write(3,*) 'nnd=',ndustspec
-        write(3,*) 'ind=indgen('//trim(itoa(ndustspec))//') + '//trim(itoa(ind(1)))
-        close(3)
+      if (ndustspec/=1) then
+        call farray_index_append('nnd',ndustspec)
+        call farray_index_append('ind',ind(1),1,ndustspec)
       endif
 !
 !  Register dust mass.
@@ -197,11 +195,9 @@ module Dustdensity
           call farray_register_pde('md'//sdust,imd_tmp)
           imd(k) = imd_tmp
         enddo
-        if (lroot .and. ndustspec/=1) then
-          open(3,file=trim(datadir)//'/index.pro', position='append')
-          write(3,*) 'nmd=',ndustspec
-          write(3,*) 'imd=indgen('//trim(itoa(ndustspec))//') + '//trim(itoa(imd(1)))
-          close(3)
+        if (ndustspec/=1) then
+          call farray_index_append('nmd',ndustspec)
+          call farray_index_append('imd',imd(1),1,ndustspec)
         endif
       endif
 !
@@ -214,11 +210,9 @@ module Dustdensity
           call farray_register_pde('mi'//sdust,imi_tmp)
           imd(k) = imi_tmp
         enddo
-        if (lroot .and. ndustspec/=1) then
-          open(3,file=trim(datadir)//'/index.pro', position='append')
-          write(3,*) 'nmi=',ndustspec
-          write(3,*) 'imi=indgen('//trim(itoa(ndustspec))//') + '//trim(itoa(imi(1)))
-          close(3)
+        if (ndustspec/=1) then
+          call farray_index_append('nmi',ndustspec)
+          call farray_index_append('imi',imi(1),1,ndustspec)
         endif
       endif
 !
@@ -239,11 +233,9 @@ module Dustdensity
           enddo
         enddo
 !
-        if (lroot .and. ndustspec/=1) then
-          open(3,file=trim(datadir)//'/index.pro', position='append')
-          write(3,*) 'ndc=',ndustspec
-          write(3,*) 'idc=indgen('//trim(itoa(ndustspec))//') + '//trim(itoa(idc(1)))
-          close(3)
+        if (ndustspec/=1) then
+          call farray_index_append('ndc',ndustspec)
+          call farray_index_append('imi',idc(1),1,ndustspec)
         endif
 !
       endif
@@ -1567,9 +1559,13 @@ module Dustdensity
         if (lpencil(i_ppsf)) then
           do k=1, ndustspec
             if (dsize(k)>0. .and. dsize(k)/=1.01e-6) then
-              if (.not.ldcore) &
-                p%ppsf(:,k)=p%ppsat*exp(AA*p%TT1/2./dsize(k) &
+              if (.not.ldcore) then
+                ! catch extremely large values in p%TT1 during pencil check
+                T_tmp = AA*p%TT1
+                if (lpencil_check_at_work) T_tmp = T_tmp / exp(real(nint(alog(T_tmp))))
+                p%ppsf(:,k)=p%ppsat*exp(T_tmp/(2.*dsize(k)) &
                             -2.75e-8*0.1/(2.*(dsize(k)-1.01e-6)))
+              endif
             endif
           enddo
         endif
@@ -3145,6 +3141,7 @@ module Dustdensity
 !   3-may-02/axel: coded
 !
       use Diagnostics, only: parse_name
+      use FArrayManager, only: farray_index_append
       use General, only: itoa, loptest, get_species_nr
 !
       logical :: lreset
@@ -3156,7 +3153,7 @@ module Dustdensity
 !
 !  Write information to index.pro that should not be repeated for all species.
 !
-      if (loptest(lwrite)) write(3,*) 'ndustspec=',ndustspec
+      if (loptest(lwrite)) call farray_index_append('ndustspec',ndustspec)
 !
 !  Reset everything in case of reset.
 !

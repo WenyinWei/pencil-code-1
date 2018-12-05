@@ -71,7 +71,7 @@ module Sub
   public :: multmv, multmv_mn, multmv_transp
   public :: mult_matrix
 !
-  public :: read_line_from_file, remove_file, control_file_exists
+  public :: read_line_from_file, control_file_exists
   public :: noform
 !
   public :: update_snaptime, read_snaptime
@@ -81,9 +81,8 @@ module Sub
 !
   public :: max_for_dt,unit_vector
 !
-  public :: write_dx_general, numeric_precision, wdim, rdim
-  public :: write_prof, write_xprof, write_zprof, remove_zprof
-  public :: read_zprof
+  public :: write_dx_general, rdim
+  public :: write_xprof, write_zprof, remove_prof
 !
   public :: tensor_diffusion_coef
 !
@@ -1692,14 +1691,25 @@ module Sub
       use General, only: loptest
 !
       real, dimension (nx,3,3), intent (in) :: aij
-      real, dimension (nx,3), intent (in), optional :: a
+      real, dimension (:,:), intent (in), optional :: a
       logical, intent (in), optional :: lcovariant_derivative
       real, dimension (nx,3), intent (out) :: b
-      integer :: i1=1,i2=2,i3=3,i4=4,i5=5,i6=6,i7=7
+      integer :: i1=1,i2=2,i3=3,i4=4,i5=5,i6=6,i7=7,a1,a2
 !
       b(:,1)=aij(:,3,2)-aij(:,2,3)
       b(:,2)=aij(:,1,3)-aij(:,3,1)
       b(:,3)=aij(:,2,1)-aij(:,1,2)
+!
+      if (present(a)) then
+        a1 = 1
+        a2 = size(a,1)
+        if (((a2 /= nx) .and. (a2 /= mx)) .or. (size(a,2) /= 3)) &
+            call fatal_error('curl_mn','array "a" has wrong size, must be (nx,3) or (mx,3)')
+        if (a2 == mx) then
+          a1 = l1
+          a2 = l2
+        endif
+      endif
 !
 !  Adjustments for spherical coordinate system.
 !
@@ -1708,9 +1718,9 @@ module Sub
           if (.not. present(a)) then
             call fatal_error('curl_mn','Need a for spherical curl')
           endif
-          b(:,1)=b(:,1)+a(:,3)*r1_mn*cotth(m)
-          b(:,2)=b(:,2)-a(:,3)*r1_mn
-          b(:,3)=b(:,3)+a(:,2)*r1_mn
+          b(:,1)=b(:,1)+a(a1:a2,3)*r1_mn*cotth(m)
+          b(:,2)=b(:,2)-a(a1:a2,3)*r1_mn
+          b(:,3)=b(:,3)+a(a1:a2,2)*r1_mn
         endif
       endif
 !
@@ -1719,7 +1729,7 @@ module Sub
 !  We do this here currently up to second order, and only for curl_mn.
 !
       if (lcylindrical_coords.and.present(a)) then
-        if (.not.loptest(lcovariant_derivative)) b(:,3)=b(:,3)+a(:,2)*rcyl_mn1
+        if (.not.loptest(lcovariant_derivative)) b(:,3)=b(:,3)+a(a1:a2,2)*rcyl_mn1
         if (rcyl_mn(1)==0.) b(i1,3)=(360.*b(i2,3)-450.*b(i3,3)+400.*b(i4,3) &
                                     -225.*b(i5,3)+72.*b(i6,3)-10.*b(i7,3))/147.
       endif
@@ -3476,88 +3486,6 @@ module Sub
 !
     endsubroutine gradf_upw1st
 !***********************************************************************
-    character function numeric_precision()
-!
-!  Return 'S' if running in single, 'D' if running in double precision.
-!
-!  12-jul-06/wolf: extracted from wdim()
-!
-      integer :: real_prec
-!
-      real_prec = precision(1.)
-      if (real_prec==6 .or. real_prec==7) then
-        numeric_precision = 'S'
-      elseif (real_prec == 15) then
-        numeric_precision = 'D'
-      else
-        print*, 'WARNING: encountered unknown precision ', real_prec
-        numeric_precision = '?'
-      endif
-!
-    endfunction numeric_precision
-!***********************************************************************
-    subroutine wdim(file,mxout,myout,mzout,mvar_out,maux_out,lglobal)
-!
-!  Write dimension to file.
-!
-!   8-sep-01/axel: adapted to take myout,mzout
-!  30-sep-14/MR  : added parameter lglobal to be able to output
-!                  dimensions different from mx,my,mz both locally and globally
-!   4-oct-16/MR: added optional parameters mvar_out,maux_out.
-!
-      use General, only: loptest, ioptest
-!
-      character (len=*) :: file
-      character         :: prec
-      integer, optional :: mxout,myout,mzout,mvar_out,maux_out
-      logical, optional :: lglobal
-      integer           :: mxout1,myout1,mzout1,iprocz_slowest=0
-!
-!  Determine whether mxout=mx (as on each processor),
-!  or whether mxout is different (e.g. when writing out full array).
-!
-      if (present(mzout)) then
-        mxout1=mxout
-        myout1=myout
-        mzout1=mzout
-      elseif (lmonolithic_io) then
-        mxout1=nxgrid+2*nghost
-        myout1=nygrid+2*nghost
-        mzout1=nzgrid+2*nghost
-      else
-        mxout1=mx
-        myout1=my
-        mzout1=mz
-      endif
-!
-!  Only root writes allprocs/dim.dat (with io_mpio.f90),
-!  but everybody writes to their procN/dim.dat (with io_dist.f90).
-!
-      if (lroot .or. .not. lmonolithic_io) then
-        open(1,file=file)
-        write(1,'(3i7,3i7)') mxout1,myout1,mzout1, &
-                             ioptest(mvar_out,mvar),ioptest(maux_out,maux),mglobal
-!
-!  Check for double precision.
-!
-        prec = numeric_precision()
-        write(1,'(a)') prec
-!
-!  Write number of ghost cells (could be different in x, y and z).
-!
-        write(1,'(3i5)') nghost, nghost, nghost
-        if (loptest(lglobal)) then
-          if (lprocz_slowest) iprocz_slowest=1
-          write(1,'(4i5)') nprocx, nprocy, nprocz, iprocz_slowest
-        else
-          write(1,'(3i5)') ipx, ipy, ipz
-        endif
-!
-        close(1)
-      endif
-!
-    endsubroutine wdim
-!***********************************************************************
     subroutine rdim(file,mx_in,my_in,mz_in,mvar_in,maux_in,mglobal_in,&
         prec_in,nghost_in,ipx_in, ipy_in, ipz_in)
 !
@@ -3719,8 +3647,7 @@ module Sub
         lfirstcall=.false.
       endif
 !
-      if (    (t_sp       >= tout)             .or. &
-          (abs(t_sp-tout) <  deltat_threshold)) then
+      if ((t_sp >= tout) .or. (abs(t_sp-tout) <  deltat_threshold)) then
         tout=tout+abs(dtout)
         nout=nout+1
         lout=.true.
@@ -3729,7 +3656,7 @@ module Sub
 !  the code craches. If the disk is full, however, we need to reset the values
 !  manually.
 !
-        writenext: if (lroot .and. lwrite) then
+        if (lroot .and. lwrite) then
           open(lun,FILE=trim(file))
           write(lun,*) tout,nout
           write(lun,*) 'This file is written automatically (routine'
@@ -3738,7 +3665,7 @@ module Sub
           write(lun,*) 'are only read once in the beginning. You may adapt'
           write(lun,*) 'them by hand (eg after a crash).'
           close(lun)
-        endif writenext
+        endif
       else
         lout=.false.
       endif
@@ -4905,24 +4832,6 @@ nameloop: do
 !
     endsubroutine parse_shell
 !***********************************************************************
-    subroutine remove_file(fname)
-!
-!  Remove a file.
-!
-!  5-mar-02/wolf: coded
-!
-      use File_io, only: file_exists
-!
-      character (len=*), intent(in) :: fname
-!
-      logical :: removed
-!
-      removed = file_exists(fname,DELETE=.true.)
-      if (removed .and. (ip<=6)) &
-          print*,'remove_file: Removed file <',trim(fname),'>'
-!
-    endsubroutine remove_file
-!***********************************************************************
     function control_file_exists(fname,delete)
 !
 !  Does the given control file exist in either ./ or ./runtime/ ?
@@ -4931,22 +4840,15 @@ nameloop: do
 !  26-jul-09/wolf: coded
 !
       use File_io, only: parallel_file_exists
+      use General, only: loptest
 !
       logical :: control_file_exists
       character (len=*), intent(in) :: fname
       logical, optional, intent(in) :: delete
 !
-      logical :: ldelete
-!
-      if (present(delete)) then
-        ldelete=delete
-      else
-        ldelete=.false.
-      endif
-!
-      control_file_exists = parallel_file_exists(trim(fname), ldelete)
+      control_file_exists = parallel_file_exists(trim(fname), loptest(delete))
       if (.not. control_file_exists) &
-          control_file_exists = parallel_file_exists(trim("runtime/"//fname), ldelete)
+          control_file_exists = parallel_file_exists(trim("runtime/"//fname), loptest(delete))
 !
     endfunction control_file_exists
 !***********************************************************************
@@ -5155,13 +5057,15 @@ nameloop: do
 !
 !  10-jul-05/axel: coded
 !
-      real, dimension(:) :: a
-      character (len=*) :: fname
+      use IO, only: output_profile
+!
+      real, dimension(:), intent(in) :: a
+      character (len=*), intent(in) :: fname
 
-      if (size(a)==mz) then
-        call write_prof(fname,z,a,'z')
+      if (size(a) == mz) then
+        call output_profile(fname, z, a, 'z', lsave_name=.true., lhas_ghost=.true.)
       else
-        call write_prof(fname,z(n1:n2),a,'z')
+        call output_profile(fname, z(n1:n2), a, 'z', lsave_name=.true.)
       endif
  
     endsubroutine write_zprof
@@ -5172,123 +5076,54 @@ nameloop: do
 !
 !  10-jul-05/axel: coded
 !
-      real, dimension(:) :: a
-      character (len=*) :: fname
+      use IO, only: output_profile
+!
+      real, dimension(:), intent(in) :: a
+      character (len=*), intent(in) :: fname
 
-      if (size(a)==mx) then
-        call write_prof(fname,x,a,'x')
+      if (size(a) == mx) then
+        call output_profile(fname, x, a, 'x', lsave_name=.true., lhas_ghost=.true.)
       else
-        call write_prof(fname,x(l1:l2),a,'x')
+        call output_profile(fname, x(l1:l2), a, 'x', lsave_name=.true.)
       endif
  
     endsubroutine write_xprof
 !***********************************************************************
-    subroutine write_prof(fname,coor,a,type,lsave_name)
+    subroutine remove_prof(type)
 !
-!  Writes profile to a file.
-!
-!  10-jul-05/axel: coded
-!
-      use General, only: safe_character_assign, loptest
-!
-      real, dimension(:) :: coor, a
-      character (len=*) :: fname
-      character :: type
-      logical, optional :: lsave_name
-!
-      integer, parameter :: unit=1
-      character (len=fnlen) :: wfile
-      integer :: i
-!
-!  If within a loop, do this only for the first step (indicated by lwrite_prof).
-!
-      if (lwrite_prof) then
-!
-!  Write zprofile file.
-!
-        call safe_character_assign(wfile, &
-            trim(directory)//'/'//type//'prof_'//trim(fname)//'.dat')
-        open(unit,file=wfile,position='append')
-        do i=1,size(coor)
-          write(unit,*) coor(i),a(i)
-        enddo
-        close(unit)
-!
-!  Add file name to list of f zprofile files if lsave_name *not* set or true.
-!
-        if (loptest(lsave_name,.true.)) then
-          call safe_character_assign(wfile,trim(directory)//'/'//type//'prof_list.dat')
-          open(unit,file=wfile,position='append')
-          write(unit,*) fname
-          close(unit)
-        endif
-      endif
-!
-    endsubroutine write_prof
-!***********************************************************************
-    subroutine read_zprof(fname,a)
-!
-!  Read z-profile from a file (taken from stratification, for example).
-!
-!  15-may-15/axel: coded
-!
-      use General, only: safe_character_assign
-!
-      real, dimension(:) :: a
-      character (len=*) :: fname
-!
-      integer, parameter :: unit=1
-      character (len=fnlen) :: wfile
-      real, dimension(size(a)) :: zloc
-!
-!  Write zprofile file.
-!
-      call safe_character_assign(wfile, &
-          trim(directory)//'/zprof_'//trim(fname)//'.dat')
-      open(unit,file=wfile)
-      do n=1,size(a)
-        read(unit,*) zloc(n),a(n)
-      enddo
-      close(unit)
-!
-!  Should we check that zloc == z ?
-!
-    endsubroutine read_zprof
-!***********************************************************************
-    subroutine remove_zprof
-!
-!  Remove z-profile file.
+!  Remove profile file.
 !
 !  10-jul-05/axel: coded
+!  05-Nov-2018/PABourdin: generalized to any direction
 !
+      use File_io, only: file_remove
       use General, only: safe_character_assign
 !
-      character (len=120) :: fname,wfile,listfile
+      character, intent(in) :: type
+!
+      character (len=120) :: fname,listfile
       integer :: ierr, unit=2
 !
-!  Do this only for the first step.
+      call file_remove(trim(directory)//'/'//'profile_'//type//'.h5')
 !
-      call safe_character_assign(listfile,trim(directory)//'/zprof_list.dat')
+      call safe_character_assign(listfile,trim(directory)//'/'//type//'/prof_list.dat')
 !
 !  Read list of file and remove them one by one.
 !
       open(unit,file=listfile,status='old',iostat=ierr)
       if (ierr /= 0) return
-      do while ((it <= nt) .and. (ierr == 0))
+      do while (it <= nt)
         read(unit,*,iostat=ierr) fname
-        if (ierr == 0) then
-          call safe_character_assign(wfile, &
-              trim(directory)//'/zprof_'//trim(fname)//'.dat')
-          call remove_file(wfile)
-        endif
+        if (ierr /= 0) exit
+        call file_remove(trim(directory)//'/'//type//'/prof_'//trim(fname)//'.dat')
       enddo
       close(unit)
 !
 !  Now delete this listfile altogether.
 !
-      call remove_file(listfile)
+      call file_remove(listfile)
 !
-    endsubroutine remove_zprof
+    endsubroutine remove_prof
 !***********************************************************************
     subroutine blob(ampl,f,i,radius,xblob,yblob,zblob)
 !
@@ -5857,16 +5692,29 @@ nameloop: do
 !
 !  Check if this array has size nx or mx.
 !
-      select case (size(rrmn))
-      case (mx)
+!     select case (size(rrmn))
+!     case (mx)
+!       xc=x
+!     case (nx)
+!       xc=x(l1:l2)
+!     case default
+!       print*,'get_radial_distance: '//&
+!            'the array has dimension=',size(rrmn),' is that correct?'
+!       call fatal_error('get_radial_distance','')
+!     endselect
+!
+!AB: the construct above doesn't work if there are no ghostzones,
+!AB: i.e., if mx=nx. User therefore if statement.
+!
+      if (size(rrmn)==mx) then
         xc=x
-      case (nx)
+      elseif (size(rrmn)==nx) then
         xc=x(l1:l2)
-      case default
+      else
         print*,'get_radial_distance: '//&
              'the array has dimension=',size(rrmn),' is that correct?'
         call fatal_error('get_radial_distance','')
-      endselect
+      endif
 !
 !  Calculate the coordinate-free distance relative to the position (e1,e2,e3).
 !
@@ -6611,7 +6459,7 @@ nameloop: do
 !  13-jan-11/MR: coded
 !  29-may-14/ccyang: add optional argument communicated
 !
-      use FArrayManager, only: farray_register_auxiliary
+      use FArrayManager, only: farray_register_auxiliary, farray_index_append
 !
       implicit none
 !
@@ -6621,8 +6469,6 @@ nameloop: do
       logical, intent(in), optional :: communicated
 !
       integer   :: vec
-      character :: ch
-      character (LEN=max(len(name)-2,2)) :: tail
 !
       vec=-1
 !
@@ -6637,10 +6483,8 @@ nameloop: do
         endif
       endif
 !
-      if (index==0) then
-!
+      if (index == 0) then
         call farray_register_auxiliary(trim(name), index, vector=abs(vec), communicated=communicated)
-!
         if (vec>=1) then
           ind_aux1=index
           if (vec>=2) then
@@ -6648,31 +6492,9 @@ nameloop: do
             if (vec==3) ind_aux3=index+2
           endif
         endif
-!
-      endif
-!
-      if (index/=0.and.lroot) then
-!
-        print*, 'register_report_aux: i'//trim(name)//' =', index
-        open(3,file=trim(datadir)//'/index.pro', POSITION='append')
-        write(3,*) 'i'//trim(name)//' =',index
-!
-        if ( vec>=1 ) then
-          tail=' ='
-          ch = name(1:1)
-          if ( ch==name(2:2) ) then
-            if ( len_trim(name)>2 ) tail = trim(name(3:))//' ='
-          endif
-!
-          write(3,*) 'i'//ch//'x'//trim(tail),ind_aux1
-          if ( vec>=2 ) then
-            write(3,*) 'i'//ch//'y'//trim(tail),ind_aux2
-            if ( vec==3 ) write(3,*) 'i'//ch//'z'//trim(tail),ind_aux3
-          endif
-        endif
-!
-        close(3)
-!
+      else
+        if (lroot) print*, 'register_report_aux: i'//trim(name)//' =', index
+        call farray_index_append('i'//trim(name),index,vec)
       endif
 !
     endsubroutine register_report_aux
@@ -7402,17 +7224,17 @@ if (notanumber(f(ll,mm,2:mz-2,iff))) print*, 'DIFFZ:k,ll,mm=', k,ll,mm
       logical,                  optional, intent(IN) :: lshear_rateofstrain
 
       real, dimension(nx,3) :: uu
-      real, dimension(nx,3,3) :: uij
+      real, dimension(nx,3,3) :: uij, sij
 
 ! uij from f
       call gij(f,iuu,uij,1)
       uu=f(l1:l2,m,n,iux:iuz)
 ! divu -> uij2
       call div_mn(uij,sij2,uu)
-! sij -> uij
-      call traceless_strain(uij,sij2,uij,uu,lshear_rateofstrain)
-! sij2
-      call multm2_sym_mn(uij,sij2)
+! sij
+      call traceless_strain(uij,sij2,sij,uu,lshear_rateofstrain)
+! sij^2
+      call multm2_sym_mn(sij,sij2)
 
     endsubroutine calc_sij2
 !***********************************************************************

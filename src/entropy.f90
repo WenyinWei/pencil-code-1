@@ -56,10 +56,11 @@ module Energy
   real :: kx_ss=1.0, ky_ss=1.0, kz_ss=1.0
   real :: thermal_background=0.0, thermal_peak=0.0, thermal_scaling=1.0
   real :: cool_fac=1.0, chiB=0.0
+  real :: downflow_cs2cool_fac=1.0
   real, dimension(3) :: chi_hyper3_aniso=0.0
   real, dimension(3) :: gradS0_imposed=(/0.0,0.0,0.0/)
   real, target :: hcond0=impossible, hcond1=impossible
-  real, target :: hcondxbot=impossible, hcondxtop=impossible
+  real, target :: hcondxbot=impossible, hcondxtop=0.0
   real, target :: hcondzbot=impossible, hcondztop=impossible
   real, target :: Fbot=impossible, FbotKbot=0. !set default to 0 vs impossible
   ! FbotKbot normally overwritten, but to remain finite if not
@@ -111,7 +112,7 @@ module Energy
   logical :: lheatc_shock=.false., lheatc_shock2=.false., lheatc_hyper3ss=.false.
   logical :: lheatc_hyper3ss_polar=.false., lheatc_hyper3ss_aniso=.false.
   logical :: lheatc_hyper3ss_mesh=.false., lheatc_shock_profr=.false.
-  logical :: lcooling_general=.false., lcooling_ss_mz=.false.
+  logical :: lcooling_general=.false.
   logical :: lupw_ss=.false.
   logical :: lcalc_ssmean=.false., lcalc_ss_volaverage=.false.
   logical :: lcalc_cs2mean=.false., lcalc_cs2mz_mean=.false.
@@ -142,6 +143,7 @@ module Energy
   logical :: lenergy_slope_limited=.false.
   logical :: limpose_heat_ceiling=.false.
   logical :: lthdiff_Hmax=.false.
+  logical :: lchit_noT=.false.
   real :: h_slope_limited=0.
   character (len=labellen) :: islope_limiter=''
   character (len=labellen), dimension(ninit) :: initss='nothing'
@@ -181,7 +183,7 @@ module Energy
       tau_cool_ss, cool2, TTref_cool, lhcond_global, cool_fac, cs0hs, H0hs, &
       rho0hs, tau_cool2, lconvection_gravx, Fbot, cs2top_ini, dcs2top_ini, &
       hcond0_kramers, nkramers, alpha_MLT, lprestellar_cool_iso, lread_hcond, &
-      limpose_heat_ceiling, heat_ceiling
+      limpose_heat_ceiling, heat_ceiling, lcooling_ss_mz
 !
 !  Run parameters.
 !
@@ -189,7 +191,7 @@ module Energy
       hcond0, hcond1, hcond2, widthss, borderss, mpoly0, mpoly1, mpoly2, &
       luminosity, wheat, cooling_profile, cooltype, cool, cs2cool, rcool, &
       rcool1, rcool2, deltaT, cs2cool2, cool2, zcool, ppcool, wcool, wcool2, Fbot, &
-      lcooling_general, lcooling_ss_mz, gradS0_imposed, &
+      lcooling_general, gradS0_imposed, &
       ss_const, chi_t, chi_rho, chit_prof1, zcool2, &
       chit_prof2, chi_shock, chi_shock2, chi, iheatcond, Kgperp, Kgpara, cool_RTV, &
       tau_ss_exterior, lmultilayer, Kbot, tau_cor, TT_cor, z_cor, &
@@ -216,7 +218,7 @@ module Energy
       zheat_uniform_range, peh_factor, lphotoelectric_heating_radius, &
       limpose_heat_ceiling, heat_ceiling, lthdiff_Hmax, zz1_fluct, zz2_fluct, &
       Pr_smag1, chi_t0, chi_t1, lchit_total, lchit_mean, lchit_fluct, &
-      chi_cspeed,xbot_chit1, xtop_chit1
+      chi_cspeed,xbot_chit1, xtop_chit1, lchit_noT, downflow_cs2cool_fac
 !
 !  Diagnostic variables for print.in
 !  (need to be consistent with reset list below).
@@ -453,9 +455,10 @@ module Energy
       use FArrayManager
       use Gravity, only: gravz, g0, compute_gravity_star
       use Initcond
+      use IO, only: input_profile
       use Mpicomm, only: stop_it
       use SharedVariables, only: put_shared_variable, get_shared_variable
-      use Sub, only: blob, read_zprof, write_prof
+      use Sub, only: blob
 !
       real, dimension (mx,my,mz,mfarray) :: f
 !
@@ -813,7 +816,11 @@ module Energy
 !
 !  Read entropy profile (used for cooling to reference profile)
 !
-      if (lcooling_ss_mz) call read_zprof('ss_mz',ss_mz)
+      if (lcooling_ss_mz .and. lrun) then
+        if (.not. lentropy .and. .not. ltemperature) &
+            call fatal_error('cooling_ss_mz','ss cooling requires entropy or temperature')
+        call input_profile('ss_mz', 'z', ss_mz, mz, lhas_ghost=.true.)
+      endif
 !
 !  Initialize heat conduction.
 !
@@ -5246,7 +5253,11 @@ module Energy
 !  chi_t acts on the total entropy 
 !      
       if (lchit_total) then
-        call dot(p%glnrho+p%glnTT,p%gss,g2)
+        if (lchit_noT) then 
+          call dot(p%glnrho,p%gss,g2)
+        else
+          call dot(p%glnrho+p%glnTT,p%gss,g2)
+        endif
         thdiff=thdiff+chi_t0*chit_prof*(p%del2ss+g2)
         call dot(glnchit_prof,p%gss,g2)
         thdiff=thdiff+chi_t0*g2
@@ -5263,7 +5274,11 @@ module Energy
           do j=1,3; gss0(:,j)=gssmx(:,j); enddo
           del2ss0=del2ssmx
         endif
-        call dot(p%glnrho+p%glnTT,gss0,g2)
+        if (lchit_noT) then 
+          call dot(p%glnrho,gss0,g2)
+        else
+          call dot(p%glnrho+p%glnTT,gss0,g2)
+        endif
         thdiff=thdiff+chi_t0*chit_prof*(del2ss0+g2)
         call dot(glnchit_prof,gss0,g2)
         thdiff=thdiff+chi_t0*g2
@@ -5280,7 +5295,11 @@ module Energy
           do j=1,3; gss1(:,j)=p%gss(:,j)-gssmx(:,j); enddo
           del2ss1=p%del2ss-del2ssmx
         endif
-        call dot(p%glnrho+p%glnTT,gss1,g2)
+        if (lchit_noT) then 
+          call dot(p%glnrho,gss1,g2)
+        else
+          call dot(p%glnrho+p%glnTT,gss1,g2)
+        endif
         thdiff=thdiff+chi_t1*chit_prof_fluct*(del2ss1+g2)
         call dot(glnchit_prof_fluct,gss1,g2)
         thdiff=thdiff+chi_t1*g2
@@ -5672,7 +5691,8 @@ module Energy
 !
       use Diagnostics, only: sum_mn_name, xysum_mn_name_z
       use Gravity, only: z2
-      use Sub, only: step, cubic_step, write_prof
+      use IO, only: output_profile
+      use Sub, only: step, cubic_step
 !
       type (pencil_case) :: p
       real, dimension (nx) :: heat,prof
@@ -5730,14 +5750,14 @@ module Energy
 !
       if (lcalc_cs2mz_mean) then
         heat = heat - cool*prof*(cs2mz(n)-cs2cool)/cs2cool
-      else
+      else 
         heat = heat - cool*prof*(p%cs2-cs2cool)/cs2cool
       endif
 !
 !  Write out cooling profile (during first time step only) and apply.
 !  MR: Later to be moved to initialization!
 !
-      if (m==m1) call write_prof('cooling_profile',z(n:n),prof(1:1),'z', lsave_name=(n==n1))
+      if (m==m1) call output_profile('cooling_profile',z(n:n),prof(1:1),'z', lsave_name=(n==n1))
 !
 !  Write divergence of cooling flux.
 !
@@ -5844,7 +5864,7 @@ module Energy
 !
       type (pencil_case) :: p
 !
-      real, dimension (nx) :: heat,prof,prof2,cs2_tmp
+      real, dimension (nx) :: heat,prof,prof2,cs2_tmp,fac_tmp
       real, dimension (nx), save :: cs2cool_x
       real :: prof1
 !
@@ -5923,6 +5943,20 @@ module Energy
         cs2_tmp=p%cs2-cs2cool_x
         where (cs2_tmp < 0.) cs2_tmp=0.
         heat = heat - cool*prof*(p%cs2-cs2cool_x)
+!
+!  Cool only downflows toward a specified profile stored in a file
+!
+      case ('shell_mean_downflow')
+        if (it == 1) call read_cooling_profile_x(cs2cool_x)
+        if (rcool==0.0) rcool=r_ext
+        prof = step(x(l1:l2),rcool,wcool)
+        cs2_tmp=p%cs2-cs2cool_x
+        where (p%uu(:,1) .gt. 0.)
+          fac_tmp=0.
+        elsewhere
+          fac_tmp=1.
+        endwhere
+        heat = heat - cool*prof*fac_tmp*(p%cs2-downflow_cs2cool_fac*cs2cool_x)
 !
 !  Latitude dependent heating/cooling: imposes a latitudinal variation
 !  of temperature proportional to cos(theta) at each depth. deltaT gives
@@ -6256,6 +6290,7 @@ module Energy
 !   1-jun-02/axel: adapted from magnetic fields
 !
       use Diagnostics, only: parse_name
+      use FArrayManager, only: farray_index_append
 !
       logical :: lreset,lwr
       logical, optional :: lwrite
@@ -6461,9 +6496,9 @@ module Energy
 !  Write column where which entropy variable is stored.
 !
       if (lwr) then
-        write(3,*) 'iss=',iss
-        write(3,*) 'iyH=',iyH
-        write(3,*) 'ilnTT=',ilnTT
+        call farray_index_append('iyH',iyH)
+        call farray_index_append('ilnTT',ilnTT)
+        call farray_index_append('iTT',iTT)
       endif
 !
     endsubroutine rprint_energy
@@ -7120,8 +7155,7 @@ module Energy
       use Mpicomm, only: mpibcast_real_arr, MPI_COMM_WORLD
 !
       real, dimension(nx), intent(out) :: cs2cool_x
-      integer, parameter :: ntotal=nx*nprocx       !MR: Isn't this nxgrid?
-      real, dimension(nx*nprocx) :: tmp1
+      real, dimension(nxgrid) :: tmp1
       real :: var1
       logical :: exist
       integer :: stat, nn
@@ -7144,7 +7178,7 @@ module Energy
 !
 !  Read profiles.
 !
-        do nn=1,ntotal
+        do nn=1,nxgrid
           read(36,*,iostat=stat) var1
           if (stat<0) exit
           if (ip<5) print*,'cs2cool_x: ',var1
@@ -7154,7 +7188,7 @@ module Energy
 !
       endif
 !
-      call mpibcast_real_arr(tmp1, ntotal, comm=MPI_COMM_WORLD)
+      call mpibcast_real_arr(tmp1, nxgrid, comm=MPI_COMM_WORLD)
 !
 !  Assuming no ghost zones in cooling_profile.dat
 !

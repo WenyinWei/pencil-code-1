@@ -522,7 +522,8 @@
   \var{bz2m}      & $\left< B_z^2 \right>$ \\
   \var{uxbm}      & $\left<\uv\times\Bv\right>\cdot\Bv_0/B_0^2$ \\
   \var{jxbm}      & $\left<\jv\times\Bv\right>\cdot\Bv_0/B_0^2$ \\
-  \var{magfricmax} & $\left<\jv\times\Bv\right>\cdot\Bv^2$ \\
+  \var{vmagfricmax} & $\max(1/\nu_{\rm mag}|\jv\times\Bv/\Bv^2|)$ \\
+  \var{vmagfricrms} & $\left<1/\nu_{\rm mag}|\jv\times\Bv/\Bv^2|^2\right>^{1/2}$ \\
   \var{b3b21m}    & $\left<B_3 B_{2,1} \right>$ \\
   \var{b3b12m}    & $\left<B_3 B_{1,2} \right>$ \\
   \var{b1b32m}    & $\left<B_1 B_{3,2} \right>$ \\
@@ -688,6 +689,8 @@
 \midrule
   \multicolumn{2}{c}{Module \file{chiral_mhd.f90}} \\
 \midrule
+  \var{muSm}      & $\left<\mu_S\right>$ \\
+  \var{muSrms}    & $\left<\mu_S^2\right>^{1/2}$ \\
   \var{mu5m}      & $\left<\mu_5\right>$ \\
   \var{mu5rms}    & $\left<\mu_5^2\right>^{1/2}$ \\
   \var{gmu5rms}   & $\left<(\nabla\mu_5)^2\right>^{1/2}$ \\
@@ -704,6 +707,7 @@
   \var{dt_chiral} & total time-step contribution from chiral MHD \\
   \var{mu5bxm}    & $\left<\mu_5B_x\right>$ \\
   \var{mu5b2m}    & $\left<\mu_5B^2\right>$ \\
+  \var{jxm}       & $\langle J_x\rangle$ \\
 \midrule
   \multicolumn{2}{c}{Module \file{coronae.f90}} \\
 \midrule

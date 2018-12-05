@@ -64,19 +64,7 @@ module Particles_number
 !
 !  Index for particle internal number.
 !
-      inpswarm=npvar+1
-      pvarname(npvar+1)='inpswarm'
-!
-!  Increase npvar accordingly.
-!
-      npvar=npvar+1
-!
-!  Check that the fp and dfp arrays are big enough.
-!
-      if (npvar > mpvar) then
-        if (lroot) write(0,*) 'npvar = ', npvar, ', mpvar = ', mpvar
-        call fatal_error('register_particles: npvar > mpvar','')
-      endif
+      call append_npvar('inpswarm',inpswarm)
 !
     endsubroutine register_particles_number
 !***********************************************************************
@@ -457,6 +445,7 @@ module Particles_number
 !  24-aug-05/anders: adapted
 !
       use Diagnostics
+      use FArrayManager, only: farray_index_append
 !
       logical :: lreset
       logical, optional :: lwrite
@@ -468,7 +457,7 @@ module Particles_number
 !
       lwr = .false.
       if (present(lwrite)) lwr=lwrite
-      if (lwr) write(3,*) 'inpswarm=', inpswarm
+      if (lwr) call farray_index_append('inpswarm', inpswarm)
 !
 !  Reset everything in case of reset.
 !

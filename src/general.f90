@@ -45,7 +45,7 @@ module General
   public :: ranges_dimensional
   public :: staggered_mean_scal, staggered_mean_vec
   public :: staggered_max_scal, staggered_max_vec
-  public :: directory_names_std
+  public :: directory_names_std, numeric_precision
   public :: touch_file
   public :: var_is_vec
   public :: transform_cart_spher, transform_spher_cart_yy
@@ -305,8 +305,8 @@ module General
         call random_number_wrapper(r)
       enddo
       call random_number_wrapper(p)
-      gn(1)=sqrt(-2*log(r))*sin(2*pi*p)
-      gn(2)=sqrt(-2*log(r))*cos(2*pi*p)
+      gn(1)=sqrt(-2*log(r))*sin(twopi*p)
+      gn(2)=sqrt(-2*log(r))*cos(twopi*p)
     endsubroutine gaunoise_number
 !***********************************************************************
     subroutine random_number_wrapper_0(a)
@@ -2007,7 +2007,7 @@ module General
 ! III
       if ((re< 0.0).and.(im< 0.0)) complex_phase=  pi-asin(im/c)
 ! IV
-      if ((re>=0.0).and.(im< 0.0)) complex_phase=2*pi+asin(im/c)
+      if ((re>=0.0).and.(im< 0.0)) complex_phase=twopi+asin(im/c)
 !
     endfunction complex_phase
 !***********************************************************************
@@ -2684,7 +2684,7 @@ module General
 !***********************************************************************
   subroutine write_full_columns_real(unit,buffer,range,unfilled,ncol,fmt)
 !
-! range-wise output of a real or complex vector in ncol columns
+! range-wise output of a real vector in ncol columns
 ! unfilled (inout) - number of unfilled slots in last written line
 !
 !  20-apr-11/MR: coded
@@ -2693,7 +2693,6 @@ module General
 !
     integer,                        intent(in)    :: unit
     real,    dimension(*),          intent(in)    :: buffer
-    complex, dimension(*),          intent(in)    :: buffer_cmplx
     integer, dimension(3),          intent(in)    :: range
     integer,                        intent(inout) :: unfilled
     integer,              optional, intent(in)    :: ncol
@@ -2702,9 +2701,6 @@ module General
     integer              :: ncoll, nd, ia, ie, is, rest
     character(len=intlen):: str
     character(len=intlen):: fmtl, fmth
-    logical              :: lcomplex
-!
-    lcomplex = .false.
 !
     if ( present(fmt) ) then
       fmtl = fmt
@@ -2712,19 +2708,7 @@ module General
       fmtl = 'e10.2'
     endif
 !
-    goto 1
-!
-  entry write_full_columns_cmplx(unit,buffer_cmplx,range,unfilled,ncol,fmt)
-!
-    lcomplex = .true.
-!
-    if ( present(fmt) ) then
-      fmtl = '('//fmt//',1x,'//fmt//')'
-    else
-      fmtl = '(e10.2,1x,e10.2)'
-    endif
-!
- 1  nd = get_range_no(range,1)
+    nd = get_range_no(range,1)
     if ( nd==0 ) return
 !
     ncoll = ioptest(ncol,8)
@@ -2741,14 +2725,9 @@ module General
         if (nd<unfilled) fmth = trim(fmtl)//'$'
         str=itoa(nd)
       endif
-!
       nd = nd-unfilled
 !
-      if (lcomplex) then
-        write(unit,'(1p,'//trim(str)//trim(fmth)//')') buffer_cmplx(range(1):ie:is)
-      else
-        write(unit,'(1p,'//trim(str)//trim(fmth)//')') buffer(range(1):ie:is)
-      endif
+      write(unit,'(1p,'//trim(str)//trim(fmth)//')') buffer(range(1):ie:is)
 !
       if ( nd>0 ) then
         ia = ie + is
@@ -2765,28 +2744,93 @@ module General
 !
     if ( rest<nd ) then
       str=itoa(ncoll)
-      if (lcomplex) then
-        write(unit,'(1p,'//trim(str)//trim(fmtl)//')') buffer_cmplx(ia:ie:is)
-      else
-        write(unit,'(1p,'//trim(str)//trim(fmtl)//')') buffer(ia:ie:is)
-      endif
+      write(unit,'(1p,'//trim(str)//trim(fmtl)//')') buffer(ia:ie:is)
     endif
 !
     if ( rest > 0 ) then
-!
       str=itoa(rest)
-      if (lcomplex) then
-        write(unit,'(1p,'//trim(str)//trim(fmtl)//'$)') buffer_cmplx(ie+is:range(2):is)
-      else
-        write(unit,'(1p,'//trim(str)//trim(fmtl)//'$)') buffer(ie+is:range(2):is)
-      endif
-!
+      write(unit,'(1p,'//trim(str)//trim(fmtl)//'$)') buffer(ie+is:range(2):is)
       unfilled = ncoll-rest
     else
       unfilled = 0
     endif
 !
   endsubroutine write_full_columns_real
+!***********************************************************************
+  subroutine write_full_columns_cmplx(unit,buffer,range,unfilled,ncol,fmt)
+!
+! range-wise output of a complex vector in ncol columns
+! unfilled (inout) - number of unfilled slots in last written line
+!
+!  20-apr-11/MR: coded
+!  29-jan-14/MR: introduced is for range step; inserted some trim calls
+!  05-feb-14/MR: corrected wrong placement of is definition
+!
+    integer,                        intent(in)    :: unit
+    complex, dimension(*),          intent(in)    :: buffer
+    integer, dimension(3),          intent(in)    :: range
+    integer,                        intent(inout) :: unfilled
+    integer,              optional, intent(in)    :: ncol
+    character(len=*),     optional, intent(in)    :: fmt
+!
+    integer              :: ncoll, nd, ia, ie, is, rest
+    character(len=intlen):: str
+    character(len=intlen):: fmtl, fmth
+!
+    if ( present(fmt) ) then
+      fmtl = '('//fmt//',1x,'//fmt//')'
+    else
+      fmtl = '(e10.2,1x,e10.2)'
+    endif
+!
+    nd = get_range_no(range,1)
+    if ( nd==0 ) return
+!
+    ncoll = ioptest(ncol,8)
+    is = range(3)
+!
+    if ( unfilled > 0 ) then
+!
+      fmth = fmtl
+      if ( nd>unfilled ) then
+        ie = range(1)+(unfilled-1)*is
+        str=itoa(unfilled)
+      else
+        ie = range(2)
+        if (nd<unfilled) fmth = trim(fmtl)//'$'
+        str=itoa(nd)
+      endif
+      nd = nd-unfilled
+!
+      write(unit,'(1p,'//trim(str)//trim(fmth)//')') buffer(range(1):ie:is)
+!
+      if ( nd>0 ) then
+        ia = ie + is
+      else
+        unfilled = -nd
+        return
+      endif
+    else
+      ia = range(1)
+    endif
+!
+    rest = mod(nd,ncoll)
+    ie = (nd-rest-1)*is + ia
+!
+    if ( rest<nd ) then
+      str=itoa(ncoll)
+      write(unit,'(1p,'//trim(str)//trim(fmtl)//')') buffer(ia:ie:is)
+    endif
+!
+    if ( rest > 0 ) then
+      str=itoa(rest)
+      write(unit,'(1p,'//trim(str)//trim(fmtl)//'$)') buffer(ie+is:range(2):is)
+      unfilled = ncoll-rest
+    else
+      unfilled = 0
+    endif
+!
+  endsubroutine write_full_columns_cmplx
 !***********************************************************************
     function add_merge_range( ranges, ie, range ) result (iel)
 !  
@@ -3315,7 +3359,7 @@ module General
 !******************************************************************************
   subroutine write_by_ranges_2d_real( unit, buffer, xranges, yranges, trans )
 !
-! writes a real or complex 2D array controlled by lists of ranges
+! writes a real 2D array controlled by lists of ranges
 ! xranges and yranges for each of the two dimensions; output optionally transposed
 !
 ! 10-may-11/MR: coded
@@ -3327,20 +3371,12 @@ module General
     integer,                 intent(in)           :: unit
     integer, dimension(3,*), intent(in)           :: xranges, yranges
     real,    dimension(:,:), intent(in)           :: buffer
-    complex, dimension(:,:), intent(in)           :: buffer_cmplx
     logical,                 intent(in), optional :: trans
 !
     integer :: i,j,jl,unfilled
-    logical :: transl, lcomplex
+    logical :: transl
 !
-    lcomplex = .false.
-    goto 1
-!
-  entry write_by_ranges_2d_cmplx( unit, buffer_cmplx, xranges, yranges, trans )
-!
-    lcomplex = .true.
-!
- 1  unfilled = 0
+    unfilled = 0
 !
     if ( present(trans) ) then
       transl = trans
@@ -3350,25 +3386,14 @@ module General
 !
     do j=1,nk_max
       if ( yranges(1,j) == 0 ) exit
-!
       do jl=yranges(1,j),yranges(2,j),yranges(3,j)
         do i=1,nk_max
           if ( xranges(1,i) == 0 ) exit
-!
           if ( transl ) then
-            if (lcomplex) then
-              call write_full_columns_cmplx( unit, buffer_cmplx(jl,:), xranges(1,i), unfilled )
-            else
-              call write_full_columns_real( unit, buffer(jl,:), xranges(1,i), unfilled )
-            endif
+            call write_full_columns_real( unit, buffer(jl,:), xranges(1,i), unfilled )
           else
-            if (lcomplex) then
-              call write_full_columns_cmplx( unit, buffer_cmplx(:,jl), xranges(1,i), unfilled )
-            else
-              call write_full_columns_real( unit, buffer(:,jl), xranges(1,i), unfilled )
-            endif
+            call write_full_columns_real( unit, buffer(:,jl), xranges(1,i), unfilled )
           endif
-!
         enddo
       enddo
     enddo
@@ -3377,9 +3402,54 @@ module General
 !
   endsubroutine write_by_ranges_2d_real
 !***********************************************************************
+  subroutine write_by_ranges_2d_cmplx( unit, buffer, xranges, yranges, trans )
+!
+! writes a real or complex 2D array controlled by lists of ranges
+! xranges and yranges for each of the two dimensions; output optionally transposed
+!
+! 10-may-11/MR: coded
+! 27-jan-14/MR: loops truncated if all valid ranges processed
+! 29-jan-14/MR: changed declaration of buffer*
+!
+    use Cdata, only: nk_max
+!
+    integer,                 intent(in)           :: unit
+    integer, dimension(3,*), intent(in)           :: xranges, yranges
+    complex, dimension(:,:), intent(in)           :: buffer
+    logical,                 intent(in), optional :: trans
+!
+    integer :: i,j,jl,unfilled
+    logical :: transl
+!
+    unfilled = 0
+!
+    if ( present(trans) ) then
+      transl = trans
+    else
+      transl = .false.
+    endif
+!
+    do j=1,nk_max
+      if ( yranges(1,j) == 0 ) exit
+      do jl=yranges(1,j),yranges(2,j),yranges(3,j)
+        do i=1,nk_max
+          if ( xranges(1,i) == 0 ) exit
+          if ( transl ) then
+            call write_full_columns_cmplx( unit, buffer(jl,:), xranges(1,i), unfilled )
+          else
+            call write_full_columns_cmplx( unit, buffer(:,jl), xranges(1,i), unfilled )
+          endif
+        enddo
+      enddo
+    enddo
+!
+    if ( unfilled > 0 ) write( unit,'(a)')
+!
+  endsubroutine write_by_ranges_2d_cmplx
+!***********************************************************************
   subroutine write_by_ranges_1d_real(unit,buffer,ranges)
 !
-! writes a real or complex vector controlled by lists of ranges
+! writes a real vector controlled by lists of ranges
 ! output optionally transposed
 !
 ! 10-may-11/MR: coded
@@ -3390,32 +3460,46 @@ module General
 !
     integer,                 intent(in) :: unit
     real,    dimension(:)  , intent(in) :: buffer
-    complex, dimension(:)  , intent(in) :: buffer_cmplx
     integer, dimension(3,*), intent(in) :: ranges
 !
     integer :: unfilled, i
-    logical :: lcomplex
 !
-    lcomplex = .false.
-    goto 1
-!
-  entry  write_by_ranges_1d_cmplx(unit,buffer_cmplx,ranges)
-!
-    lcomplex = .true.
-!
- 1  unfilled = 0
+    unfilled = 0
     do i=1,nk_max
       if ( ranges(1,i) == 0 ) exit
-      if (lcomplex) then
-        call write_full_columns_cmplx( unit, buffer_cmplx, ranges(1,i), unfilled )
-      else
-        call write_full_columns_real( unit, buffer, ranges(1,i), unfilled )
-      endif
+      call write_full_columns_real( unit, buffer, ranges(1,i), unfilled )
     enddo
 !
     if ( unfilled > 0 ) write(unit,'(a)')
 !
   endsubroutine write_by_ranges_1d_real
+!***********************************************************************
+  subroutine write_by_ranges_1d_cmplx(unit,buffer,ranges)
+!
+! writes a complex vector controlled by lists of ranges
+! output optionally transposed
+!
+! 10-may-11/MR: coded
+! 27-jan-14/MR: loop truncated if all valid ranges processed
+! 29-jan-14/MR: changed declaration of buffer*
+!
+    use Cdata, only: nk_max
+!
+    integer,                 intent(in) :: unit
+    complex, dimension(:)  , intent(in) :: buffer
+    integer, dimension(3,*), intent(in) :: ranges
+!
+    integer :: unfilled, i
+!
+    unfilled = 0
+    do i=1,nk_max
+      if ( ranges(1,i) == 0 ) exit
+      call write_full_columns_cmplx( unit, buffer, ranges(1,i), unfilled )
+    enddo
+!
+    if ( unfilled > 0 ) write(unit,'(a)')
+!
+  endsubroutine write_by_ranges_1d_cmplx
 !***********************************************************************
     subroutine date_time_string(date)
 !
@@ -4218,6 +4302,26 @@ module General
 !
     endsubroutine directory_names_std
 !****************************************************************************
+    character function numeric_precision()
+!
+!  Return 'S' if running in single, 'D' if running in double precision.
+!
+!  12-jul-06/wolf: extracted from wdim()
+!
+      integer :: real_prec
+!
+      real_prec = precision(1.)
+      if (real_prec==6 .or. real_prec==7) then
+        numeric_precision = 'S'
+      elseif (real_prec == 15) then
+        numeric_precision = 'D'
+      else
+        print*, 'WARNING: encountered unknown precision ', real_prec
+        numeric_precision = '?'
+      endif
+!
+    endfunction numeric_precision
+!***********************************************************************
     subroutine touch_file(file)
 !
 !  Touches a given file (used for code locking).
@@ -4320,42 +4424,30 @@ module General
 
     endsubroutine transform_spher_cart_yy
 !***********************************************************************
-    subroutine yy_transform_strip(ith1_,ith2_,iph1_,iph2_,thphprime,ith_shift_,iph_shift_)
+    subroutine yy_transform_strip(ith1,ith2,iph1,iph2,thphprime,ith_shift_,iph_shift_)
 !
 !  Transform coordinates of ghost zones of Yin or Yang grid to other grid.
-!  Strip is defined by index ranges (ith1_,ith2_), (iph1_,iph2_) with respect
+!  Strip is defined by index ranges (ith1,ith2), (iph1,iph2) with respect
 !  to local grid, in particular sinth, costh etc.
 !
 !  4-dec-15/MR: coded
 ! 12-mar-16/MR: entry yy_transform_strip_other added
 ! 10-sep-18/MR: added parameters ith_shift_,iph_shift_ for creating slanted strips
+! 25-oct-18/PABourdin: entry yy_transform_strip_other removed and simplified code
 !
       use Cdata, only: costh,sinth,cosph,sinph, y, z
 
-      integer,               intent(IN) :: ith1_,ith2_,iph1_,iph2_
+      integer,               intent(IN) :: ith1,ith2,iph1,iph2
       real, dimension(:,:,:),intent(OUT):: thphprime
-      real, dimension(:),    intent(IN) :: th,ph
       integer, optional,     intent(IN) :: iph_shift_, ith_shift_
 
-      integer :: i,j,itp,jtp,ith1,ith2,iph1,iph2,iph_shift,ith_shift,ii,jj,ishift,jshift
+      integer :: i,j,itp,jtp,iph_shift,ith_shift,ii,jj,ishift,jshift
       real :: sth, cth, xprime, yprime, zprime, sprime
-      logical :: ltransp, lother
+      logical :: ltransp
 
-      lother=.false.
-      ith1=ith1_; ith2=ith2_; iph1=iph1_; iph2=iph2_
       if (ith2<ith1.or.iph2<iph1) return
 
-      goto 1
-
-    entry yy_transform_strip_other(th,ph,thphprime,ith_shift_,iph_shift_)
-!
-!  Here strip is given by vectors th and ph not related to local grid.
-!
-      lother=.true.
-      ith1=1; ith2=size(th)
-      iph1=1; iph2=size(ph)
-
- 1    ltransp = ith2-ith1+1 /= size(thphprime,2)
+      ltransp = ith2-ith1+1 /= size(thphprime,2)
 
       iph_shift=ioptest(iph_shift_)        ! default is zero
       ith_shift=ioptest(ith_shift_)        ! default is zero
@@ -4364,27 +4456,18 @@ module General
 !
       jshift=iph_shift
       do i=ith1,ith2
-        ishift=ith_shift; 
+        ishift=ith_shift
         do j=iph1,iph2
 !
 !  Rotate by Pi about z axis, then by Pi/2 about x axis.
 !  No distinction between Yin and Yang as transformation matrix is self-inverse.
 !
           ii=i+ishift
-          if (lother) then
-            sth=sin(th(ii)); cth=cos(th(ii))
-          else
-            sth=sinth(ii); cth=costh(ii)
-          endif
+          sth=sinth(ii); cth=costh(ii)
 
           jj=j+jshift
-          if (lother) then
-            xprime = -cos(ph(jj))*sth
-            zprime = -sin(ph(jj))*sth
-          else
-            xprime = -cosph(jj)*sth
-            zprime = -sinph(jj)*sth
-          endif
+          xprime = -cosph(jj)*sth
+          zprime = -sinph(jj)*sth
           yprime = -cth
 
           sprime = sqrt(xprime**2 + yprime**2)
@@ -4397,7 +4480,7 @@ module General
 
           thphprime(1,itp,jtp) = atan2(sprime,zprime)
           thphprime(2,itp,jtp) = atan2(yprime,xprime)
-          if (thphprime(2,itp,jtp)<0.) thphprime(2,itp,jtp) = thphprime(2,itp,jtp) + 2.*pi
+          if (thphprime(2,itp,jtp)<0.) thphprime(2,itp,jtp) = thphprime(2,itp,jtp) + twopi
 !
           !thphprime(1,itp,jtp) = ii
           !thphprime(2,itp,jtp) = jj
@@ -4410,6 +4493,73 @@ module General
       enddo
 
     endsubroutine yy_transform_strip
+!***********************************************************************
+    subroutine yy_transform_strip_other(th,ph,thphprime,ith_shift_,iph_shift_)
+!
+!  Transform coordinates of ghost zones of Yin or Yang grid to other grid.
+!  Strip is defined by by vectors th and ph not related to local grid.
+!
+!  4-dec-15/MR: coded
+! 12-mar-16/MR: entry yy_transform_strip_other added
+! 10-sep-18/MR: added parameters ith_shift_,iph_shift_ for creating slanted strips
+! 25-oct-18/PABourdin: entry yy_transform_strip_other removed and simplified code
+!
+      use Cdata, only: costh,sinth,cosph,sinph, y, z
+
+      real, dimension(:),    intent(IN) :: th,ph
+      real, dimension(:,:,:),intent(OUT):: thphprime
+      integer, optional,     intent(IN) :: iph_shift_, ith_shift_
+
+      integer :: i,j,itp,jtp,iph_shift,ith_shift,ii,jj,ishift,jshift
+      real :: sth, cth, xprime, yprime, zprime, sprime
+      logical :: ltransp
+
+      ltransp = size(th) /= size(thphprime,2)
+
+      iph_shift=ioptest(iph_shift_)        ! default is zero
+      ith_shift=ioptest(ith_shift_)        ! default is zero
+
+      thphprime(1,:,:)=0.                  ! to indicate undefined values
+!
+      jshift=iph_shift
+      do i=1,size(th)
+        ishift=ith_shift; 
+        do j=1,size(ph)
+!
+!  Rotate by Pi about z axis, then by Pi/2 about x axis.
+!  No distinction between Yin and Yang as transformation matrix is self-inverse.
+!
+          ii=i+ishift
+          sth=sin(th(ii)); cth=cos(th(ii))
+
+          jj=j+jshift
+          xprime = -cos(ph(jj))*sth
+          zprime = -sin(ph(jj))*sth
+          yprime = -cth
+
+          sprime = sqrt(xprime**2 + yprime**2)
+
+          if (ltransp) then
+            jtp = i; itp = j
+          else
+            itp = i; jtp = j
+          endif
+
+          thphprime(1,itp,jtp) = atan2(sprime,zprime)
+          thphprime(2,itp,jtp) = atan2(yprime,xprime)
+          if (thphprime(2,itp,jtp)<0.) thphprime(2,itp,jtp) = thphprime(2,itp,jtp) + twopi
+!
+          !thphprime(1,itp,jtp) = ii
+          !thphprime(2,itp,jtp) = jj
+!
+!if (iproc_world==0.and.size(thphprime,3)==41) &
+!  print'(4(f7.4,1x),4(i2,1x))', y(i), z(j), thphprime(:,itp,jtp), i,j,itp,jtp
+          if (ishift/=0) ishift=ishift+ith_shift
+        enddo
+        if (jshift/=0) jshift=jshift+iph_shift
+      enddo
+
+    endsubroutine yy_transform_strip_other
 !***********************************************************************
     subroutine copy_with_shift(i1, i2, j1, j2, source, dest, ishift_, jshift_)
 !
@@ -4778,7 +4928,7 @@ module General
 
           yz(1,ind) = atan2(sprime,zprime)
           yz(2,ind) = atan2(yprime,xprime)
-          if (yz(2,ind) < 0.) yz(2,ind) = yz(2,ind)+2.*pi
+          if (yz(2,ind) < 0.) yz(2,ind) = yz(2,ind)+twopi
           ind = ind+1
 
         enddo

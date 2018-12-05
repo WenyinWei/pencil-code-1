@@ -4,11 +4,11 @@
 &run_pars
   ip=14
   cvsid='$Id: run.in,v 1.1 2018/06/17 13:33:10 joern Exp $'
-  nt=5, it1=1, isave=5000
+  nt=5, it1=1, it1start=1, isave=5000
   dsnap=60.   ! = 60 sec
   dtmin =1e-10
 !
-  bcz = 's:a' ,'s:a' ,'div:a','fg:s','fg:s','pfe','nil','nil','s','s','a'
+  bcz = 's:a' ,'s:a' ,'div:a','fg:s','fg:s','pfe','nil','nil','a','a','a'
   fbcz_bot= 0.,    0., 0., 0., 0., 0.25
 !
   lpencil_check=F

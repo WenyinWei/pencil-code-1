@@ -485,16 +485,13 @@ module Chemistry
           do i = 0, nchemspec-1
             ireaci(i+1) = ireac+i
           enddo
-        endif
-        if (ireac /= 0 .and. lroot) then
-          print*, 'initialize_reaction_rates: ireac = ', ireac
-          open (3,file=trim(datadir)//'/index.pro', POSITION='append')
-          write (3,*) 'ireac=',ireac
+        else
+          if (lroot) print*, 'initialize_chemistry: ireac = ', ireac
+          call farray_index_append('ireac',ireac)
           do i = 1, nchemspec
             write (car2,'(i2)') i
-            write (3,*) 'ireac'//trim(adjustl(car2))//'=', ireaci(i)
+            call farray_index_append('ireac'//trim(adjustl(car2)),ireaci(i))
           enddo
-          close (3)
         endif
       endif
 !
@@ -2925,7 +2922,9 @@ module Chemistry
           RHS_T_full = sum_DYDt(:)
         else
           if (ltemperature_nolog) then
-            call stop_it('ltemperature_nolog case does not work now!')
+              RHS_T_full = p%cv1*((sum_DYDt(:)-Rgas*p%mu1*p%divu)*p%TT &
+                  +sum_dk_ghk+sum_hhk_DYDt_reac)
+   !       call stop_it('ltemperature_nolog case does not work now!')
           else
             if (lchemonly) then
               RHS_T_full = (sum_DYDt(:)+sum_hhk_DYDt_reac*p%TT1(:))*p%cv1
@@ -3129,6 +3128,7 @@ module Chemistry
 !  13-aug-07/steveb: coded
 !
       use Diagnostics, only: parse_name
+      use FArrayManager, only: farray_index_append
       use General, only: itoa, get_species_nr
 !
       integer :: iname, inamez,ii
@@ -3232,8 +3232,8 @@ module Chemistry
 !  Write chemistry index in short notation
 !
       if (lwr) then
-        write (3,*) 'nchemspec=',nchemspec
-        write (3,*) 'ichemspec=indgen('//trim(itoa(nchemspec))//') + '//trim(itoa(ichemspec(1)))
+        call farray_index_append('nchemspec',nchemspec)
+        call farray_index_append('ichemspec',ichemspec(1),1,nchemspec)
       endif
 !
     endsubroutine rprint_chemistry
@@ -4155,6 +4155,7 @@ module Chemistry
           else
             kr = kf-Kc
           endif
+          if (lpencil_check_at_work) where (kr > 32) kr = kr / exp(real(nint(alog(kr))))
 !
           if (Mplus_case (reac)) then
             where (prod1 > 0.)
@@ -4911,15 +4912,16 @@ module Chemistry
 !
 !  29-feb-08/natalia: coded
 !
-      use Sub, only: dot
+      use Sub, only: dot, del2
 !
       real, dimension(mx,my,mz,mfarray) :: f
       real, dimension(mx,my,mz,mvar) :: df
       type (pencil_case) :: p
-      real, dimension(nx) :: g2TT, g2TTlambda=0., tmp1
+      real, dimension(nx) :: g2TT, g2TTlambda=0., tmp1, del2TT
 !
       if (ltemperature_nolog) then
         call dot(p%gTT,p%glambda,g2TTlambda)
+        call del2(f,iTT,del2TT)
       else
         call dot(p%glnTT,p%glambda,g2TTlambda)
         call dot(p%glnTT,p%glnTT,g2TT)
@@ -4928,11 +4930,12 @@ module Chemistry
 !  Add heat conduction to RHS of temperature equation
 !
 !      if (l1step_test .or. lSmag_heat_transport) then
-       if (l1step_test) then
+      if (l1step_test) then
         tmp1 = p%lambda(:)*(p%del2lnTT+g2TT)*p%cv1/p%rho(:)
       else
         if (ltemperature_nolog) then
-          tmp1 = (p%lambda(:)*p%del2lnTT+g2TTlambda)*p%cv1/p%rho(:)
+          tmp1 = (p%lambda(:)*del2TT+g2TTlambda)*p%cv1/p%rho(:)
+   !       tmp1 = (p%lambda(:)*p%del2lnTT+g2TTlambda)*p%cv1/p%rho(:)
           df(l1:l2,m,n,iTT) = df(l1:l2,m,n,iTT) + tmp1
         else
           tmp1 = (p%lambda(:)*(p%del2lnTT+g2TT)+g2TTlambda)*p%cv1/p%rho(:)
@@ -5104,7 +5107,7 @@ module Chemistry
           StopInd=index(ChemInpLine(StartInd:),' ')+StartInd-1
 
           read (unit=ChemInpLine(StartInd:StopInd),fmt='(E14.7)') PP
-          if (lroot) print*, ' Pressure, Pa   ', PP
+          if (lroot) print*, ' Pressure, Ba   ', PP
 
         elseif (tmp_string == 'V') then
 
@@ -5131,7 +5134,6 @@ module Chemistry
             read (unit=ChemInpLine(StartInd:StopInd),fmt='(E15.8)') YY_k
             if (lroot) print*, ' volume fraction, %,    ', YY_k, &
                 species_constants(ind_chem,imass)
-
             if (species_constants(ind_chem,imass)>0.) then
              air_mass=air_mass+YY_k*0.01/species_constants(ind_chem,imass)
             endif

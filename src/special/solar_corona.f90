@@ -233,6 +233,13 @@ module Special
       if ((flux_tau > 0.0) .and. (Bz_flux <= 0.0)) &
           call fatal_error ('solar_corona/mag_driver', &
               "Together with 'flux_tau', 'Bz_flux' needs to be set and positive.")
+      ! Check if heat conduction terms are implemented:
+      if ((K_spitzer /= 0.0) .and. (lentropy .or. (ltemperature .and. ltemperature_nolog))) &
+          call fatal_error('solar_corona/calc_heatcond_tensor', &
+              "Heat conduction 'K_spitzer' currently requirees logarithmic temperature.", .true.)
+      if ((K_iso /= 0.0) .and. lentropy) &
+          call fatal_error('solar_corona/calc_heatcond_grad', &
+              "Heat conduction 'K_iso' is currently not implemented for entropy.", .true.)
 !
       if ((.not. lreloading) .and. lrun) nano_seed = 0
 !
@@ -847,6 +854,7 @@ module Special
 !   06-oct-03/tony: coded
 !
       use Diagnostics, only: parse_name
+      use FArrayManager, only: farray_index_append
 !
       integer :: iname
       logical :: lreset, lwr
@@ -890,12 +898,12 @@ module Special
 !  write column where which variable is stored
 !
       if (lwr) then
-        write (3,*) 'i_dtvel=',idiag_dtvel
-        write (3,*) 'i_dtchi2=',idiag_dtchi2
-        write (3,*) 'i_dtnewt=',idiag_dtnewt
-        write (3,*) 'i_dtradloss=',idiag_dtradloss
-        write (3,*) 'i_dtspitzer=',idiag_dtspitzer
-        write (3,*) 'i_mag_flux=',idiag_mag_flux
+        call farray_index_append('i_dtvel',idiag_dtvel)
+        call farray_index_append('i_dtchi2',idiag_dtchi2)
+        call farray_index_append('i_dtnewt',idiag_dtnewt)
+        call farray_index_append('i_dtradloss',idiag_dtradloss)
+        call farray_index_append('i_dtspitzer',idiag_dtspitzer)
+        call farray_index_append('i_mag_flux',idiag_mag_flux)
       endif
 !
     endsubroutine rprint_special
@@ -963,7 +971,7 @@ module Special
           call del6(f,ilnrho,fdiff,IGNOREDX=.true.)
         else
           call fatal_error('special_calc_density', &
-              'not yet implented for ldensity_nolog')
+              'not yet implemented for ldensity_nolog')
         endif
 !
 !        if (lfirst.and.ldt) diffus_diffrho3=diffus_diffrho3+diffrho_hyper3
@@ -1231,7 +1239,7 @@ module Special
 !
     endsubroutine special_boundconds
 !***********************************************************************
-    subroutine special_after_timestep(f,df,dt_)
+    subroutine special_after_timestep(f,df,dt_,llast)
 !
 !  Calculate an additional 'special' term on the right hand side of the
 !  induction equation.
@@ -1246,6 +1254,8 @@ module Special
                          finalize_isendrcv_bdry
       use SharedVariables, only: get_shared_variable
       use Sub, only: cross,gij,curl_mn
+!
+      logical, intent(in) :: llast
       real, dimension (mx,my,mz,mfarray), intent(inout) :: f
       real, dimension (mx,my,mz,mvar), intent(inout) :: df
       real, dimension(mx,my,mz):: rho_tmp
@@ -1363,7 +1373,6 @@ module Special
 !        rho_tmp(l1:l2,m1:m2,n1:n2)=exp(f(l1:l2,m1:m2,n1:n2,ilnrho))+f(l1:l2,m1:m2,n1:n2,ispecaux)*dt_
 !        f(l1:l2,m1:m2,n1:n2,ilnrho)=log(rho_tmp(l1:l2,m1:m2,n1:n2))
 !      endif
-!
 !
     endsubroutine special_after_timestep
 !***********************************************************************
@@ -2638,7 +2647,7 @@ module Special
         delta_lnTT = delta_lnTT + df(l1:l2,m,n,ilnTT)
       else
         if (lentropy) &
-            call stop_it('solar_corona: calc_heat_cool_deltaT:lentropy=not implented')
+            call stop_it('solar_corona: calc_heat_cool_deltaT:lentropy=not implemented')
       endif
 !
       if (lfirst .and. ldt) then
@@ -2687,7 +2696,7 @@ module Special
         df(l1:l2,m,n,ilnTT) = df(l1:l2,m,n,ilnTT) + tmp
       else
         if (lentropy) &
-            call stop_it('solar_corona: calc_heat_cool_deltaE:lentropy=not implented')
+            call stop_it('solar_corona: calc_heat_cool_deltaE:lentropy=not implemented')
       endif
 !
       if (lfirst .and. ldt) then
@@ -2736,7 +2745,7 @@ module Special
         df(l1:l2,m,n,ilnTT) = df(l1:l2,m,n,ilnTT) + tmp
       else
         if (lentropy) &
-            call stop_it('solar_corona: calc_heat_cool_E:lentropy=not implented')
+            call stop_it('solar_corona: calc_heat_cool_E:lentropy=not implemented')
       endif
 !
       if (lfirst .and. ldt) then
@@ -2847,7 +2856,7 @@ module Special
         df(l1:l2,m,n,ilnTT) = df(l1:l2,m,n,ilnTT)-rtv_cool
       else
         if (lentropy) &
-            call stop_it('solar_corona: calc_heat_cool:lentropy=not implented')
+            call stop_it('solar_corona: calc_heat_cool:lentropy=not implemented')
       endif
 !
       if (lfirst .and. ldt) then

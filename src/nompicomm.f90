@@ -312,7 +312,7 @@ module Mpicomm
 !
   integer :: mpi_precision
   integer :: MPI_COMM_WORLD=0, MPI_COMM_GRID=0, MPI_COMM_XYPLANE=0, MPI_COMM_YZPLANE=0, &
-             MPI_INFO_NULL=0
+             MPI_ANY_TAG=0, MPI_INFO_NULL=0
 !
   contains
 !***********************************************************************
@@ -983,6 +983,15 @@ module Mpicomm
     call keep_compiler_quiet(send_array,recv_array)
 
     endsubroutine mpisendrecv_real_arr4
+!***********************************************************************
+    subroutine mpiscan_int(num,offset,comm)
+!
+      integer :: num,offset
+      integer, optional :: comm
+!
+      if (ALWAYS_FALSE) print*, num, offset, comm
+!
+    endsubroutine mpiscan_int
 !***********************************************************************
     subroutine mpisend_int_scl(bcast_array,proc_rec,tag_id)
 !

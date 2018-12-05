@@ -2181,7 +2181,7 @@ module EquationOfState
 !   4-jun-2015/MR: factor cp added in front of tmp_xy
 !  30-sep-2016/MR: changes for use of one-sided BC formulation (chosen by setting new optional switch lone_sided)
 !
-      use DensityMethods, only: getdlnrho, getderlnrho_z
+      use DensityMethods, only: getdlnrho_z, getderlnrho_z
       use Deriv, only: bval_from_neumann, set_ghosts_for_onesided_ders
       use General, only: loptest
 !
@@ -2277,7 +2277,7 @@ module EquationOfState
             call set_ghosts_for_onesided_ders(f,topbot,iss,3,.true.)
           else
              do i=1,nghost
-               call getdlnrho(f(:,:,n1-i:n1+i,ilnrho),i,rho_xy)        ! rho_xy=del_z ln(rho)
+               call getdlnrho_z(f(:,:,:,ilnrho),n1,i,rho_xy)        ! rho_xy=del_z ln(rho)
                f(:,:,n1-i,iss)=f(:,:,n1+i,iss)+cp*(cp-cv)*(rho_xy+dz2_bound(-i)*tmp_xy)
              enddo
           endif
@@ -2331,7 +2331,7 @@ module EquationOfState
             call set_ghosts_for_onesided_ders(f,topbot,iss,3,.true.)
           else
             do i=1,nghost
-              call getdlnrho(f(:,:,n2-i:n2+i,ilnrho),i,rho_xy)        ! rho_xy=del_z ln(rho)
+              call getdlnrho_z(f(:,:,:,ilnrho),n2,i,rho_xy)        ! rho_xy=del_z ln(rho)
               f(:,:,n2+i,iss)=f(:,:,n2-i,iss)+cp*(cp-cv)*(-rho_xy-dz2_bound(i)*tmp_xy)
             enddo
           endif
@@ -2354,16 +2354,15 @@ module EquationOfState
 !    4-jun-2015/MR: corrected sign of dsdz_xy for bottom boundary; 
 !                   added branches for Kramers heat conductivity (using sigmaSBt!)
 !
-      logical, pointer :: lmeanfield_chitB, lheatc_kramers
-      real, pointer :: chi,chi_t,chi_t0,hcondzbot,hcondztop
+      logical, pointer :: lheatc_kramers
+      real, pointer :: chi,chi_t,hcondzbot,hcondztop
       real, pointer :: chit_prof1,chit_prof2,hcond0_kramers, nkramers
       real, dimension(:,:), pointer :: reference_state
 !
       character (len=3) :: topbot
       real, dimension (:,:,:,:) :: f
       real, dimension (size(f,1),size(f,2)) :: dsdz_xy,cs2_xy,lnrho_xy,rho_xy, &
-        TT_xy,dlnrhodz_xy,chi_xy
-      real, dimension (l2-l1+1) :: quench
+          TT_xy,dlnrhodz_xy,chi_xy
       integer :: i
 !
       if (ldebug) print*,'bc_ss_flux_turb: ENTER - cs20,cs0=',cs20,cs0
@@ -2529,6 +2528,7 @@ module EquationOfState
       character (len=3) :: topbot
       real, dimension (:,:,:,:) :: f
       real, dimension (size(f,2),size(f,3)) :: dsdx_yz,cs2_yz,rho_yz,dlnrhodx_yz,TT_yz
+      real, dimension (size(f,2),size(f,3)) :: hcond_total
       integer :: i
       real, pointer :: hcond0_kramers, nkramers
       logical, pointer :: lheatc_kramers
@@ -2653,19 +2653,12 @@ module EquationOfState
 !            
           TT_yz=cs2_yz/(gamma_m1*cp)
 !
-!  Calculate d rho/d x    or   d ln(rho) / dx
+!  Calculate d rho/d x  or  d ln(rho) / d x
 !
           dlnrhodx_yz= coeffs_1_x(1,2)*(f(l2+1,:,:,ilnrho)-f(l2-1,:,:,ilnrho)) &
                       +coeffs_1_x(2,2)*(f(l2+2,:,:,ilnrho)-f(l2-2,:,:,ilnrho)) &
                       +coeffs_1_x(3,2)*(f(l2+3,:,:,ilnrho)-f(l2-3,:,:,ilnrho))
 !
-!          fac=(1./60)*dx_1(l2)
-!          dlnrhodx_yz=fac*(45.0*(f(l2+1,:,:,ilnrho)-f(l2-1,:,:,ilnrho)) &
-!                    -       9.0*(f(l2+2,:,:,ilnrho)-f(l2-2,:,:,ilnrho)) &
-!                    +           (f(l2+3,:,:,ilnrho)-f(l2-3,:,:,ilnrho)))
-!print*, 'coeffs(1)=', 45.*fac, coeffs_1_x(1,2)
-!print*, 'coeffs(2)=', -9.*fac, coeffs_1_x(2,2)
-!print*, 'coeffs(3)=',     fac, coeffs_1_x(3,2)
           if (ldensity_nolog) then
 !
 !  Add gradient of reference density to d rho/d x and divide by total density
@@ -2679,23 +2672,26 @@ module EquationOfState
 
           endif
 !
-          if (lheatc_kramers) then
-            dsdx_yz=-cv*( (sigmaSBt/hcond0_kramers)*TT_yz**(3-6.5*nkramers)*rho_yz**(2.*nkramers) &
-                         +gamma_m1*dlnrhodx_yz)      ! no turbulent diffusivity considered here!
-          else
-            dsdx_yz=-(sigmaSBt*TT_yz**3+hcondxtop*gamma_m1*dlnrhodx_yz)/ &
-                     (chit_prof2*chi_t*rho_yz+hcondxtop/cv)
-          endif
+!  Compute total heat conductivity
+!
+          if (lheatc_kramers .or. (hcondxtop /= 0.0)) then
+            hcond_total = hcondxtop
+            if (lheatc_kramers) hcond_total = hcond_total + &
+                hcond0_kramers*TT_yz**(6.5*nkramers)*rho_yz**(-2.*nkramers)
+!
+            dsdx_yz = -(sigmaSBt*TT_yz**3+hcond_total*gamma_m1*dlnrhodx_yz) / &
+                (chit_prof2*chi_t*rho_yz+hcond_total/cv)
 !
 !  Substract gradient of reference entropy.
 !
-          if (lreference_state) dsdx_yz = dsdx_yz - reference_state(TOP,iref_gs)
+            if (lreference_state) dsdx_yz = dsdx_yz - reference_state(TOP,iref_gs)
 !
 !  enforce ds/dx = - (sigmaSBt*T^3 + hcond*(gamma-1)*glnrho)/(chi_t*rho+hcond/cv)
 !
-          do i=1,nghost
-            f(l2+i,:,:,iss)=f(l2-i,:,:,iss)+dx2_bound(i)*dsdx_yz
-          enddo
+            do i=1,nghost
+              f(l2+i,:,:,iss)=f(l2-i,:,:,iss)+dx2_bound(i)*dsdx_yz
+            enddo
+          endif
         endif
 !
 !  capture undefined entries
@@ -2716,7 +2712,7 @@ module EquationOfState
 !                   added branches for Kramers heat conductivity
 !
       use Mpicomm, only: stop_it
-      use DensityMethods, only: getdlnrho
+      use DensityMethods, only: getdlnrho_x
 !
       real, pointer :: chi_t, hcondxbot, hcondxtop, chit_prof1, chit_prof2
       real, pointer :: Fbot, Ftop
@@ -2811,7 +2807,7 @@ module EquationOfState
 !  Enforce ds/dx = -(cp*gamma_m1*Fbot/cs2 + K*gamma_m1*glnrho)/(gamma*K+chi_t*rho)
 !
           do i=1,nghost
-            call getdlnrho(f(l1-i:l1+i,:,:,ilnrho),i,BOT,rho_yz,dlnrhodx_yz)
+            call getdlnrho_x(f(:,:,:,ilnrho),l1,i,rho_yz,dlnrhodx_yz)
             f(l1-i,:,:,iss)=f(l1+i,:,:,iss) + &
                 cp*(hcondxbot*gamma_m1/(gamma*hcondxbot+chit_prof1*chi_t*rho_yz))* &
                    dlnrhodx_yz+dx2_bound(-i)*dsdx_yz
@@ -2968,7 +2964,7 @@ module EquationOfState
 !                   added branches for Kramers heat conductivity
 !
       use Mpicomm, only: stop_it
-      use DensityMethods, only: getdlnrho
+      use DensityMethods, only: getdlnrho_z
 !
       real, pointer :: chi, hcondzbot, hcondztop
       real, pointer :: chi_t, chit_prof1, chit_prof2
@@ -3050,7 +3046,7 @@ module EquationOfState
 !  Enforce ds/dz = -(cp*gamma_m1*Fbot/cs2 + K*gamma_m1*glnrho)/(gamma*K+chi_t*rho)
 !
           do i=1,nghost
-            call getdlnrho(f(:,:,n1-i:n1+i,ilnrho),i,TT_xy)             ! here TT_xy = d_z ln(rho)
+            call getdlnrho_z(f(:,:,:,ilnrho),n1,i,TT_xy)             ! here TT_xy = d_z ln(rho)
             f(:,:,n1-i,iss)=f(:,:,n1+i,iss) + cp*(rho_xy*TT_xy+dz2_bound(-i)*dsdz_xy)
           enddo
 
@@ -3866,7 +3862,7 @@ module EquationOfState
 !   3-aug-2002/wolf: coded
 !  26-aug-2003/tony: distributed across ionization modules
 !
-      use DensityMethods, only: getdlnrho
+      use DensityMethods, only: getdlnrho_x
 
       character (len=3) :: topbot
       real, dimension (:,:,:,:) :: f
@@ -3900,7 +3896,7 @@ module EquationOfState
           if (ldensity_nolog) then
 
             if (lreference_state) then
-              call getdlnrho(f(l1-i:l1+i,:,:,ilnrho),i,BOT,rho_yz,dlnrho)     ! dlnrho = d_x ln(rho)
+              call getdlnrho_x(f(:,:,:,ilnrho),l1,i,rho_yz,dlnrho)     ! dlnrho = d_x ln(rho)
               f(l1-i,:,:,iss) =  f(l1+i,:,:,iss) + dx2_bound(-i)*reference_state(BOT,iref_gs) &
                                + (cp-cv)*dlnrho 
             else
@@ -3923,7 +3919,7 @@ module EquationOfState
         do i=1,nghost
           if (ldensity_nolog) then
             if (lreference_state) then
-              call getdlnrho(f(l2-i:l2+i,:,:,ilnrho),i,TOP,rho_yz,dlnrho)    ! dlnrho = d_x ln(rho)
+              call getdlnrho_x(f(:,:,:,ilnrho),l2,i,rho_yz,dlnrho)    ! dlnrho = d_x ln(rho)
               f(l2+i,:,:,iss) =  f(l2-i,:,:,iss) - dx2_bound(i)*reference_state(TOP,iref_gs) &
                                - (cp-cv)*dlnrho
             else
@@ -3977,7 +3973,7 @@ module EquationOfState
         if (cs2bot<=0.) print*, &
                        'bc_ss_stemp_y: cannot have cs2bot<=0'
         do i=1,nghost
-          call getdlnrho_y(f(:,m1-i:m1+i,:,ilnrho),i,dlnrho)    ! dlnrho = d_y ln(rho)
+          call getdlnrho_y(f(:,:,:,ilnrho),m1,i,dlnrho)    ! dlnrho = d_y ln(rho)
           f(:,m1-i,:,iss) = f(:,m1+i,:,iss) + (cp-cv)*dlnrho
         enddo
 !
@@ -3987,7 +3983,7 @@ module EquationOfState
         if (cs2top<=0.) print*, &
                        'bc_ss_stemp_y: cannot have cs2top<=0'
         do i=1,nghost
-          call getdlnrho_y(f(:,m2-i:m2+i,:,ilnrho),i,dlnrho)    ! dlnrho = d_y ln(rho)
+          call getdlnrho_y(f(:,:,:,ilnrho),m2,i,dlnrho)    ! dlnrho = d_y ln(rho)
           f(:,m2+i,:,iss) = f(:,m2-i,:,iss) - (cp-cv)*dlnrho
         enddo
 !
@@ -4004,7 +4000,7 @@ module EquationOfState
 !   3-aug-2002/wolf: coded
 !  26-aug-2003/tony: distributed across ionization modules
 !
-      use DensityMethods, only: getdlnrho
+      use DensityMethods, only: getdlnrho_z
 !
       character (len=3) :: topbot
       real, dimension (:,:,:,:) :: f
@@ -4030,7 +4026,7 @@ module EquationOfState
       case ('bot')
         if (cs2bot<=0.) print*, 'bc_ss_stemp_z: cannot have cs2bot<=0'
         do i=1,nghost
-          call getdlnrho(f(:,:,n1-i:n1+i,ilnrho),i,dlnrho)     ! dlnrho = d_z ln(rho)
+          call getdlnrho_z(f(:,:,:,ilnrho),n1,i,dlnrho)     ! dlnrho = d_z ln(rho)
           f(:,:,n1-i,iss) = f(:,:,n1+i,iss) + (cp-cv)*dlnrho
         enddo
 !
@@ -4039,7 +4035,7 @@ module EquationOfState
       case ('top')
         if (cs2top<=0.) print*, 'bc_ss_stemp_z: cannot have cs2top<=0'
         do i=1,nghost
-          call getdlnrho(f(:,:,n2-i:n2+i,ilnrho),i,dlnrho)     ! dlnrho = d_z ln(rho)
+          call getdlnrho_z(f(:,:,:,ilnrho),n2,i,dlnrho)     ! dlnrho = d_z ln(rho)
           f(:,:,n2+i,iss) = f(:,:,n2-i,iss) - (cp-cv)*dlnrho
         enddo
       case default

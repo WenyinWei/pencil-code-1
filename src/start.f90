@@ -63,13 +63,14 @@ program start
   use Filter
   use Gravity,          only: init_gg
   use Grid
+  use HDF5_IO,          only: initialize_hdf5
   use Hydro,            only: init_uu
   use Hyperresi_strict, only: hyperresistivity_strict
   use Hypervisc_strict, only: hyperviscosity_strict
   use Initcond
   use InitialCondition, only: initial_condition_all, initial_condition_clean_up
   use Interstellar,     only: init_interstellar
-  use IO,               only: wgrid, directory_names, wproc_bounds, output_globals
+  use IO,               only: wgrid, wdim, directory_names, wproc_bounds, output_globals
   use Lorenz_gauge,     only: init_lorenz_gauge
   use Magnetic,         only: init_aa
   use Messages
@@ -154,6 +155,10 @@ program start
 !  Initialise MPI communication.
 !
   call initialize_mpicomm
+!
+!  Initialise HDF5 communication.
+!
+  call initialize_hdf5
 !
 !  Register variables in the f array.
 !
@@ -574,10 +579,10 @@ program start
 !
   if (lwrite_ic) then
     if (lparticles) &
-        call write_snapshot_particles(directory_dist,f,ENUM=.false.,snapnum=0)
+        call write_snapshot_particles(f,ENUM=.false.,snapnum=0)
 !
     call wsnap('VAR0',f,mvar_io,ENUM=.false.,FLIST='varN.list')
-    call pointmasses_write_snapshot(trim(directory_snap)//'/QVAR0',ENUM=.false.,FLIST='qvarN.list')
+    call pointmasses_write_snapshot('QVAR0',ENUM=.false.,FLIST='qvarN.list')
   endif
 !
 !  The option lnowrite writes everything except the actual var.dat file.
@@ -588,19 +593,14 @@ program start
   if (.not.lnowrite .and. .not.lnoerase) then
     if (ip<12) print*,'START: writing to '//trim(directory_snap)//'/var.dat'
     if (lparticles) &
-        call write_snapshot_particles(directory_dist,f,ENUM=.false.)
-    call pointmasses_write_snapshot(trim(directory_snap)//'/qvar.dat',ENUM=.false.)
+        call write_snapshot_particles(f,ENUM=.false.)
+    call pointmasses_write_snapshot('qvar.dat',ENUM=.false.)
     call wsnap('var.dat',f,mvar_io,ENUM=.false.)
   elseif (lmodify) then
     call wsnap(modify_filename,f,mvar_io,ENUM=.false.)
   endif
-  call wdim(trim(directory)//'/dim.dat')
-!
-!  Also write full dimensions to data/.
-!
+  call wdim('dim.dat')
   if (lroot) then
-    call wdim(trim(datadir)//'/dim.dat', &
-        nxgrid+2*nghost,nygrid+2*nghost,nzgrid+2*nghost,lglobal=.true.)
     if (lparticles) call write_dim_particles(trim(datadir))
     call pointmasses_write_qdim(trim(datadir)//'/qdim.dat')
   endif
@@ -611,7 +611,7 @@ program start
   if (dvid/=0.) then
     call setup_slices
     call wvid_prepare
-    call wvid(f,trim(directory)//'/slice_')
+    call wvid(f)
   endif
 !
 !  Write global variables.

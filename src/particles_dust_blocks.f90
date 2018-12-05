@@ -182,25 +182,15 @@ module Particles
 !
 !  Indices for particle position.
 !
-      ixp=npvar+1
-      pvarname(npvar+1)='ixp'
-      iyp=npvar+2
-      pvarname(npvar+2)='iyp'
-      izp=npvar+3
-      pvarname(npvar+3)='izp'
+      call append_npvar('ixp',ixp)
+      call append_npvar('iyp',iyp)
+      call append_npvar('izp',izp)
 !
 !  Indices for particle velocity.
 !
-      ivpx=npvar+4
-      pvarname(npvar+4)='ivpx'
-      ivpy=npvar+5
-      pvarname(npvar+5)='ivpy'
-      ivpz=npvar+6
-      pvarname(npvar+6)='ivpz'
-!
-!  Increase npvar accordingly.
-!
-      npvar=npvar+6
+      call append_npvar('ivpx',ivpx)
+      call append_npvar('ivpy',ivpy)
+      call append_npvar('ivpz',ivpz)
 !
 !  Set indices for auxiliary variables
 !
@@ -208,13 +198,6 @@ module Particles
           communicated=lcommunicate_np)
       if (.not. lnocalc_rhop) call farray_register_auxiliary('rhop',irhop, &
           communicated=lparticles_sink.or.lcommunicate_rhop)
-!
-!  Check that the fp and dfp arrays are big enough.
-!
-      if (npvar > mpvar) then
-        if (lroot) write(0,*) 'npvar = ', npvar, ', mpvar = ', mpvar
-        call fatal_error('register_particles','npvar > mpvar')
-      endif
 !
     endsubroutine register_particles
 !***********************************************************************
@@ -1281,6 +1264,9 @@ k_loop:   do while (.not. (k>npar_loc))
             elseif (lspherical_coords) then
               rad=fp(k,ixp)*sin(fp(k,iyp))
               OO=sqrt(gravr)*rad**(-1.5)
+              fp(k,ivpx) =  0.0
+              fp(k,ivpy) =  0.0
+              fp(k,ivpz) =  OO*rad
             endif
           enddo
 !
@@ -2787,6 +2773,7 @@ k_loop:   do while (.not. (k>npar_loc))
 !  29-dec-04/anders: coded
 !
       use Diagnostics
+      use FArrayManager, only: farray_index_append
 !
       logical :: lreset
       logical, optional :: lwrite
@@ -2800,14 +2787,14 @@ k_loop:   do while (.not. (k>npar_loc))
       if (present(lwrite)) lwr=lwrite
 !
       if (lwr) then
-        write(3,*) 'ixp=', ixp
-        write(3,*) 'iyp=', iyp
-        write(3,*) 'izp=', izp
-        write(3,*) 'ivpx=', ivpx
-        write(3,*) 'ivpy=', ivpy
-        write(3,*) 'ivpz=', ivpz
-        write(3,*) 'inp=', inp
-        write(3,*) 'irhop=', irhop
+        call farray_index_append('ixp', ixp)
+        call farray_index_append('iyp', iyp)
+        call farray_index_append('izp', izp)
+        call farray_index_append('ivpx', ivpx)
+        call farray_index_append('ivpy', ivpy)
+        call farray_index_append('ivpz', ivpz)
+        call farray_index_append('inp', inp)
+        call farray_index_append('irhop', irhop)
       endif
 !
 !  Reset everything in case of reset.

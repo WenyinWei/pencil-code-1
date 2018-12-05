@@ -1,7 +1,7 @@
 ! This is a tool to collect a distributed data cube in one file.
 !
 ! $Id: pc_collect.f90 22542 2014-11-18 22:51:03Z Bourdin.KIS $
-!***********************************************************************
+!
 program pc_collect
 !
   use Cdata

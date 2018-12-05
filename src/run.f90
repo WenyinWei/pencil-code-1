@@ -67,10 +67,11 @@ program run
   use General,         only: random_seed_wrapper, touch_file, itoa
   use Grid,            only: construct_grid, box_vol, grid_bound_data, set_coorsys_dimmask, construct_serial_arrays
   use Gpu,             only: gpu_init, register_gpu
+  use HDF5_IO,         only: initialize_hdf5
   use Hydro,           only: hydro_clean_up,kinematic_random_phase
   use ImplicitPhysics, only: calc_heatcond_ADI
   use Interstellar,    only: check_SN,addmassflux
-  use IO,              only: rgrid, directory_names, rproc_bounds, output_globals, input_globals, wgrid
+  use IO,              only: rgrid, directory_names, rproc_bounds, output_globals, input_globals, wgrid, wdim
   use Magnetic,        only: rescaling_magnetic
   use Messages
   use Mpicomm
@@ -147,6 +148,10 @@ program run
 !  Initialise MPI communication.
 !
   call initialize_mpicomm
+!
+!  Initialise HDF5 communication.
+!
+  call initialize_hdf5
 !
   if (any(downsampl>1) .or. mvar_down>0 .or. maux_down>0) then
 !
@@ -268,15 +273,11 @@ program run
 !
   if (.not.luse_oldgrid) then
     call wgrid('grid.dat')
-    call wdim(trim(directory)//'/dim.dat')
-    if (lroot) call wdim(trim(datadir)//'/dim.dat', &
-        nxgrid+2*nghost,nygrid+2*nghost,nzgrid+2*nghost,lglobal=.true.)
+    call wdim('dim.dat')
     if (ip<11) print*,'Lz=',Lz
     if (ip<11) print*,'z=',z
   elseif (lwrite_dim_again) then
-    call wdim(trim(directory)//'/dim.dat')
-    if (lroot) call wdim(trim(datadir)//'/dim.dat', &
-        nxgrid+2*nghost,nygrid+2*nghost,nzgrid+2*nghost,lglobal=.true.)
+    call wdim('dim.dat')
     if (ip<11) print*,'Lz=',Lz
     if (ip<11) print*,'z=',z
   endif
@@ -414,15 +415,9 @@ program run
   call report_undefined_diagnostics
 !
   if (lparticles) call read_snapshot_particles(directory_dist)
-  if (lpointmasses) call pointmasses_read_snapshot(trim(directory_snap)//'/qvar.dat')
+  if (lpointmasses) call pointmasses_read_snapshot('qvar.dat')
 !
   call get_nseed(nseed)
-!
-!  Read global variables (if any).
-!
-  if (mglobal/=0) &
-      call input_globals('global.dat', &
-      f(:,:,:,mvar+maux+1:mvar+maux+mglobal),mglobal)
 !
 !  Set initial time to zero if requested.
 !
@@ -477,6 +472,11 @@ program run
     if (it1d<it1) call stop_it_if_any(lroot,'run: it1d smaller than it1')
   endif
 !
+!  Read global variables (if any).
+!
+  if (mglobal/=0) call input_globals('global.dat', &
+      f(:,:,:,mvar+maux+1:mvar+maux+mglobal),mglobal)
+!
 !  Initialize ionization array.
 !
   if (leos_ionization) call ioninit(f)
@@ -509,8 +509,7 @@ program run
   call choose_pencils
   call write_pencil_info
 !
-  if (mglobal/=0)  &
-      call output_globals('global.dat', &
+  if (mglobal/=0) call output_globals('global.dat', &
       f(:,:,:,mvar+maux+1:mvar+maux+mglobal),mglobal)
 !
 !  Update ghost zones, so rprint works corrected for at the first
@@ -554,15 +553,14 @@ program run
 !
 !  Trim 1D-averages for times past the current time.
 !
-  call trim_1daverages
+  call trim_averages
 !
 !  Do loop in time.
 !
-
   Time_loop: do while (it<=nt)
 !
-    lout   = mod(it-1,it1) ==0
-    l1davg = mod(it-1,it1d)==0
+    lout   = (mod(it-1,it1) == 0) .and. (it > it1start)
+    l1davg = (mod(it-1,it1d) == 0)
 !
     if (lwrite_sound) then
       if ( .not.lout_sound .and. abs( t-tsound - dsound )<= 1.1*dt ) then
@@ -794,9 +792,9 @@ program run
       if (mod(it,ialive)==0) call output_form('alive.info',it,.false.)
     endif
     if (lparticles) &
-        call write_snapshot_particles(directory_dist,f,ENUM=.true.)
+        call write_snapshot_particles(f,ENUM=.true.)
     if (lpointmasses) &
-        call pointmasses_write_snapshot(trim(directory_snap)//'/QVAR',ENUM=.true.,FLIST='qvarN.list')
+        call pointmasses_write_snapshot('QVAR',ENUM=.true.,FLIST='qvarN.list')
 !
     call wsnap('VAR',f,mvar_io,ENUM=.true.,FLIST='varN.list')
     if (ldownsampl) call wsnap_down(f,FLIST='varN_down.list')
@@ -804,7 +802,7 @@ program run
 !
 !  Write slices (for animation purposes).
 !
-    if (lvideo.and.lwrite_slices) call wvid(f,trim(directory)//'/slice_')
+    if (lvideo .and. lwrite_slices) call wvid(f)
 !
 !  Write tracers (for animation purposes).
 !
@@ -823,8 +821,8 @@ program run
         call wsnap('var.dat',f, mvar_io,ENUM=.false.,noghost=noghost_for_isave)
         call wsnap_timeavgs('timeavg.dat',ENUM=.false.)
         if (lparticles) &
-            call write_snapshot_particles(directory_dist,f,ENUM=.false.)
-        if (lpointmasses) call pointmasses_write_snapshot(trim(directory_snap)//'/qvar.dat',ENUM=.false.)
+            call write_snapshot_particles(f,ENUM=.false.)
+        if (lpointmasses) call pointmasses_write_snapshot('qvar.dat',ENUM=.false.)
         if (lsave) isave_shift = mod(it+isave-isave_shift, isave) + isave_shift
         if (lsolid_cells) call wsnap_ogrid('ogvar.dat',ENUM=.false.)
       endif
@@ -895,8 +893,8 @@ program run
   if (.not.lnowrite) then
     if (save_lastsnap) then
       if (lparticles) &
-          call write_snapshot_particles(directory_dist,f,ENUM=.false.)
-      if (lpointmasses) call pointmasses_write_snapshot(trim(directory_snap)//'/qvar.dat',ENUM=.false.)
+          call write_snapshot_particles(f,ENUM=.false.)
+      if (lpointmasses) call pointmasses_write_snapshot('qvar.dat',ENUM=.false.)
       if (lsolid_cells) call wsnap_ogrid('ogvar.dat',ENUM=.false.)
 !
       call wsnap('var.dat',f,mvar_io,ENUM=.false.)
@@ -906,7 +904,7 @@ program run
 !
       if (ip<=11 .or. lwrite_dvar) then
         call wsnap('dvar.dat',df,mvar,ENUM=.false.,noghost=.true.)
-        call particles_write_dsnapshot(trim(directory)//'/dpvar.dat',f)
+        call particles_write_dsnapshot('dpvar.dat',f)
       endif
 !
 !  Write crash files before exiting if we haven't written var.dat already

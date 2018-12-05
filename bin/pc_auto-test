@@ -78,16 +78,14 @@ my %tests = (
                          backwards-compatible
                          1d-tests/implicit_diffusion
                          2d-tests/chemistry_GrayScott
-                         2d-tests/boussinesq_convection
-                         2d-tests/selfgravitating-shearwave
                          2d-tests/shearwave-dust-par
-                         0d-tests/heating_ionize
                          dust-vortex
                          damped_alfven_waves
-                         2d-tests/streaming_instability
-                         helical-MHDturb
+                         corona
                      )],
+#                         helical-MHDturb
              2 => [qw(
+                         0d-tests/heating_ionize
                          0d-tests/heating_noionize
                          1d-tests/H2_flamespeed
                          chiral-diffusion
@@ -102,7 +100,8 @@ my %tests = (
                          kin-dynamo
                          meissner
                          conv-slab-noequi
-                         corona
+                         2d-tests/selfgravitating-shearwave
+                         2d-tests/streaming_instability
                          2d-tests/globaldisc
                          2d-tests/cylindrical_gdisk
                          2d-tests/planet-disk-fargo
@@ -134,7 +133,6 @@ my %tests = (
              # Level 3 for now contains all non-canonical tests that run
              # successfully
              3 => [qw(
-                         0d-tests/coagulation-fragmentation
                          0d-tests/heating_ionize_planck
                          1d-tests/jeans-drag-dustpar-x
                          1d-tests/jeans-x
@@ -143,8 +141,8 @@ my %tests = (
                          2d-tests/bubble
                          2d-tests/conv-slab-MLT
                          2d-tests/2d_methane_flame
+                         2d-tests/boussinesq_convection
                          conv-slab
-                         interstellar
                          interlocked-fluxrings
                          conv-slab-flat
                          coronae_heatflux_boris
@@ -172,6 +170,7 @@ my %tests = (
              # Level 5 for now contains all non-canonical tests that run,
              # but produce wrong results
              5 => [qw(
+                         interstellar
                          hexagon
                          MHD-ABCforcing
                          taylor-couette
@@ -202,6 +201,7 @@ my %tests = (
              # Level 6 for now contains all non-canonical tests that
              # start, but don't run successfully
              6 => [qw(
+                         0d-tests/coagulation-fragmentation
                      )],
              # Level 7 for now contains all non-canonical tests that
              # compile, but don't start sucessfully
@@ -288,6 +288,7 @@ Options:
                            \tUse 'DEFAULT' to get all configured types with
                            \ttheir default interpreters
        --time-limit=limit  \tLimit time for each phase
+       --auto-clean        \tAutomatic clean & recompile, if compilation fails
        --config-files=<files>
                            \tUse the given <files> (a comma-separated list) as
                            \tconfiguration files, rather than trying to find a
@@ -357,6 +358,7 @@ GetOptions(\%opts,
                     --max-level=s
                     --script-tests=s
                     --time-limit=s
+                    --auto-clean
                     --config-files=s
                     --host-id=s
                     --list-maintainers
@@ -399,6 +401,7 @@ my $level       = (              $opts{'level'}                   );
 my $max_level   = (              $opts{'max-level'}               );
 my $script_tests = (             $opts{'script-tests'}            );
 my $time_limit  = (              $opts{'time-limit'}      || ''   );
+my $auto_clean  = (              $opts{'auto-clean'}      || 0    );
 my $config_files = (             $opts{'config-files'}    || ''   );
 my $host_id     = (              $opts{'host-id'}         || ''   );
 my $list_maint  = (              $opts{'list-maintainers'} || 0   );
@@ -843,6 +846,17 @@ sub test_shell_cmd {
     $! = 0;                     # reset
     my $res = `$nice $cmd 2>&1`;
     my ($cmdstatus, $cmdmesg) = ($?, $!);
+
+    if ($auto_clean && ($phase eq 'compilation') && ($cmdstatus != 0)) {
+        # Retry compilation after cleaning
+        test_shell_cmd("@pc_build --cleanall", $dir, "cleaning up", QUIET);
+        return "ERROR running @pc_build --cleanall" if ($test_status);
+        print STDERR "\nRetrying `$nice $cmd`\n" if ($debug);
+        $! = 0;                     # reset
+        $res = `$nice $cmd 2>&1`;
+        ($cmdstatus, $cmdmesg) = ($?, $!);
+    }
+
     $res = '' unless defined($res);
     chomp($res);
     if ($res ne '') {
@@ -1151,7 +1165,12 @@ sub test_results {
                   $dir, "results");
             return;
         }
-        my $comparator = Test::NumericFileComparator->new($reference_out);
+        my $comparator;
+        eval { $comparator = Test::NumericFileComparator->new($reference_out); };
+        if ($@) {
+          my_ok(0, 1, join ("\n",$@), $dir, "results");
+          return;
+        }
         my @message = $comparator->compare($ts_file);
         if (@message) {
             my $msg = join(

@@ -1,7 +1,7 @@
 ! This tool distributes a global data cube in into the proc-directories.
 !
 ! $Id$
-!***********************************************************************
+!
 program pc_distribute
 !
   use Cdata

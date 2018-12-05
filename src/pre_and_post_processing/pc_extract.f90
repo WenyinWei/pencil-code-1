@@ -1,7 +1,7 @@
 ! This is a tool to collect a distributed data cube and process it.
 !
 ! $Id$
-!***********************************************************************
+!
 program pc_extract
 !
   use Cdata

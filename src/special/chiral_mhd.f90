@@ -43,8 +43,8 @@
 ! MVAR CONTRIBUTION 1
 ! MAUX CONTRIBUTION 0
 !
-! PENCILS PROVIDED muS; mu5; gmuS(3); gmu5(3); del2mu5
-! PENCILS PROVIDED ugmu5
+! PENCILS PROVIDED muS; mu5; gmuS(3); gmu5(3)
+! PENCILS PROVIDED ugmu5; ugmuS; del2mu5; del2muS
 !***************************************************************
 !
 ! HOW TO USE THIS FILE
@@ -91,31 +91,32 @@ module Special
 !
    real :: amplmuS=0., kx_muS=0., ky_muS=0., kz_muS=0., phase_muS=0.
    real :: amplmu5=0., kx_mu5=0., ky_mu5=0., kz_mu5=0., phase_mu5=0.
-   real :: diffmu5, lambda5, mu5_const=0., gammaf5
+   real :: diffmu5, diffmuS, lambda5, mu5_const=0., gammaf5, Cw=0.
    real :: muS_const=0., coef_muS=0., coef_mu5=0.
    real :: meanmu5=0., flucmu5=0.
    real, dimension (nx,3) :: aatest, bbtest
    real, dimension (nx,3,3) :: aijtest
    real, pointer :: eta
    real :: cdtchiral=1.
-   real, dimension (nx) :: diffus_mu5_1, diffus_mu5_2, diffus_mu5_3
-   real, dimension (nx) :: diffus_bb_1, diffus_special
+   real, dimension (nx) :: dt1_mu5_1, dt1_mu5_2, dt1_mu5_3, dt1_mu5_4
+   real, dimension (nx) :: dt1_muS_1, dt1_muS_2, dt1_bb_1, dt1_special
    real, dimension (nx) :: uxbj
    integer :: imu5, imuS
-   logical :: ldiffus_mu5_1_old=.false., lmuS=.false., lCVE=.false.
+   logical :: lmuS=.false., lCVE=.false.
+   logical :: lmu5adv=.true., lmuSadv=.true.
 !
   character (len=labellen) :: initspecial='nothing'
 !
   namelist /special_init_pars/ &
       initspecial, mu5_const, &
-      lmuS, lCVE, muS_const, coef_muS, &
+      lmuS, lCVE, lmu5adv, lmuSadv, muS_const, coef_muS, &
       amplmuS, kx_muS, ky_muS, kz_muS, phase_muS, &
       amplmu5, kx_mu5, ky_mu5, kz_mu5, phase_mu5, &
       coef_muS, coef_mu5
 !
   namelist /special_run_pars/ &
-      diffmu5, lambda5, cdtchiral, gammaf5, ldiffus_mu5_1_old, &
-      coef_muS, coef_mu5
+      diffmu5, diffmuS, lambda5, cdtchiral, gammaf5, &
+      coef_muS, coef_mu5, Cw, lmuS, lCVE, lmu5adv
 !
 ! Diagnostic variables (needs to be consistent with reset list below).
 !
@@ -128,18 +129,22 @@ module Special
   integer :: idiag_gmu5my=0    ! DIAG_DOC: $\left<\nabla\mu_5\right>_y$       
   integer :: idiag_gmu5mz=0    ! DIAG_DOC: $\left<\nabla\mu_5\right>_z$   
   integer :: idiag_bgmu5rms=0  ! DIAG_DOC: $\left<(\Bv\cdot\nabla\mu_5)^2\right>^{1/2}$ 
+  integer :: idiag_bgmuSrms=0  ! DIAG_DOC: $\left<(\Bv\cdot\nabla\mu_S)^2\right>^{1/2}$ 
   integer :: idiag_mu5bjm=0    ! DIAG_DOC: $\left<\mu_5 ((\nabla\times\Bv)\cdot\Bv) \right>$
   integer :: idiag_mu5bjrms=0  ! DIAG_DOC: $\left<(\mu_5 ((\nabla\times\Bv)\cdot\Bv))^2 \right>^{1/2}$
+  integer :: idiag_oogmu5rms=0  
+  integer :: idiag_oogmuSrms=0  
   integer :: idiag_dt_mu5_1=0  ! DIAG_DOC: $\mathrm{min}(\mu_5/\Bv^2) \delta x/(\lambda \eta)$ 
   integer :: idiag_dt_mu5_2=0  ! DIAG_DOC: $(\lambda \eta \mathrm{min}(\Bv^2))^{-1}$ 
   integer :: idiag_dt_mu5_3=0  ! DIAG_DOC: $\delta x^2/D_5$   
+  integer :: idiag_dt_mu5_4=0  ! DIAG_DOC: $\delta x^2/D_5$   
+  integer :: idiag_dt_muS_1=0  ! DIAG_DOC: $\mathrm{min}(\mu_5/\Bv^2) \delta x/(\lambda \eta)$ 
+  integer :: idiag_dt_muS_2=0  ! DIAG_DOC: $(\lambda \eta \mathrm{min}(\Bv^2))^{-1}$ 
   integer :: idiag_dt_bb_1=0   ! DIAG_DOC: $\delta x /(\eta \mathrm{max}(\mu_5))$ 
   integer :: idiag_dt_chiral=0 ! DIAG_DOC: total time-step contribution from chiral MHD
-  integer :: idiag_mu5bxm=0      ! DIAG_DOC: $\left<\mu_5B_x\right>$
-  integer :: idiag_mu5b2m=0      ! DIAG_DOC: $\left<\mu_5B^2\right>$
-!JEN:
-  integer :: idiag_jxm = 0      ! DIAG_DOC: $\langle J_x\rangle$
-!JEN
+  integer :: idiag_mu5bxm=0    ! DIAG_DOC: $\left<\mu_5B_x\right>$
+  integer :: idiag_mu5b2m=0    ! DIAG_DOC: $\left<\mu_5B^2\right>$
+  integer :: idiag_jxm = 0     ! DIAG_DOC: $\langle J_x\rangle$
 !
   contains
 !***********************************************************************
@@ -243,8 +248,13 @@ module Special
           if (lmuS) f(:,:,:,imuS) = muS_const
 !
         case ('sinwave-phase')
-          call sinwave_phase(f,imuS,amplmuS,kx_muS,ky_muS,kz_muS,phase_muS)
           call sinwave_phase(f,imu5,amplmu5,kx_mu5,ky_mu5,kz_mu5,phase_mu5)
+          if (lmuS) call sinwave_phase(f,imuS,amplmuS,kx_muS,ky_muS,kz_muS,phase_muS)
+!
+        case ('mu5const-muSsin')
+          f(:,:,:,imu5) = mu5_const
+          if (lmuS) call sinwave_phase(f,imuS,amplmuS,kx_muS,ky_muS,kz_muS,phase_muS)
+
 !
         case default
           call fatal_error("init_special: No such value for initspecial:" &
@@ -264,6 +274,8 @@ module Special
       if (lmuS) then
         lpenc_requested(i_muS)=.true.
         lpenc_requested(i_gmuS)=.true.
+        lpenc_requested(i_ugmuS)=.true.
+        if (diffmuS/=0.) lpenc_requested(i_del2muS)=.true.
       endif
       lpenc_requested(i_mu5)=.true.
       lpenc_requested(i_gmu5)=.true.
@@ -314,6 +326,8 @@ module Special
       if (lmuS) then
         if (lpencil(i_muS)) p%muS=f(l1:l2,m,n,imuS)
         if (lpencil(i_gmuS)) call grad(f,imuS,p%gmuS)
+        if (lpencil(i_ugmuS)) call dot(p%uu,p%gmuS,p%ugmuS)
+        if (lpencil(i_del2muS)) call del2(f,imuS,p%del2muS)
       endif
       if (lpencil(i_mu5)) p%mu5=f(l1:l2,m,n,imu5)
       if (lpencil(i_gmu5)) call grad(f,imu5,p%gmu5)
@@ -336,6 +350,8 @@ module Special
 !
 !  06-oct-03/tony: coded
 !  29-sep-18/axel: included ldiffus_mu5_1_old and modified diffus_mu5_1
+!  25-noc-18/jenny: included muS terms in timestep calculation
+!  25-noc-18/jenny: added diffusion term to muS equation
 !
       use Sub, only: multsv, dot_mn, dot2_mn, dot_mn_vm_trans, dot, curl_mn, gij
       use Diagnostics, only: sum_mn_name, max_mn_name
@@ -347,8 +363,8 @@ module Special
       intent(in) :: f,p
       intent(inout) :: df
 !
-      real, dimension (nx) :: bgmu5, EB, uujj, bbjj, gmu52, bdotgmuS, bdotgmu5
-      real, dimension (nx) :: muSmu5, oobb
+      real, dimension (nx) :: bgmuS, bgmu5, EB, uujj, bbjj, gmu52, bdotgmuS, bdotgmu5
+      real, dimension (nx) :: muSmu5, oobb, oogmuS, oogmu5
       real, dimension (nx,3) :: mu5bb, muSmu5oo
       real, parameter :: alpha_fine_structure=1./137.
 !
@@ -364,14 +380,17 @@ module Special
 !  Evolution of mu5
 !
       df(l1:l2,m,n,imu5) = df(l1:l2,m,n,imu5) &
-        +diffmu5*p%del2mu5+lambda5*EB-gammaf5*p%mu5  
-      if (ldiffus_mu5_1_old) then
-        diffus_mu5_1 = lambda5*eta*p%b2*sqrt(dxyz_2)/p%mu5
-      else
-        diffus_mu5_1 = lambda5*eta*p%b2
+        +diffmu5*p%del2mu5+lambda5*EB-gammaf5*p%mu5 
+      if (lmu5adv) then
+       df(l1:l2,m,n,imu5) = df(l1:l2,m,n,imu5) - p%ugmu5 
       endif
-      diffus_mu5_2 = lambda5*eta*p%b2
-      diffus_mu5_3 = diffmu5*dxyz_2
+!  Contributions to timestep from mu5 equation
+      dt1_mu5_1 = lambda5*eta*p%b2
+      dt1_mu5_2 = diffmu5*dxyz_2
+      if (lmuS) then
+        dt1_mu5_3 = p%muS*coef_muS*sqrt(p%b2)
+      endif
+      dt1_mu5_4 = gammaf5
 !
 !  Evolution of muS
 !
@@ -380,13 +399,22 @@ module Special
         call dot(p%bb,p%gmu5,bdotgmu5)
         call dot(p%bb,p%gmuS,bdotgmuS)
         df(l1:l2,m,n,imuS) = df(l1:l2,m,n,imuS) &
-          -coef_muS*bdotgmu5
+          + diffmuS*p%del2muS - coef_muS*bdotgmu5
+        if (lmuSadv) then
+          df(l1:l2,m,n,imuS) = df(l1:l2,m,n,imuS) - p%ugmuS
+        endif
         df(l1:l2,m,n,imu5) = df(l1:l2,m,n,imu5) &
           -coef_mu5*bdotgmuS  
         if (lCVE) then   
           call dot(p%oo,p%bb,oobb)
-          df(l1:l2,m,n,imu5) = df(l1:l2,m,n,imu5) - lambda5*eta*muSmu5*oobb
+          call dot(p%oo,p%gmuS,oogmuS)
+          call dot(p%oo,p%gmu5,oogmu5)
+          df(l1:l2,m,n,imu5) = df(l1:l2,m,n,imu5) - lambda5*eta*muSmu5*oobb &
+            -2.*Cw*(p%muS*oogmuS+p%mu5*oogmu5)
         endif
+!  Contributions to timestep from muS equation
+        dt1_muS_1 = p%mu5*coef_muS*sqrt(p%b2)
+        dt1_muS_2 = diffmuS*dxyz_2
       endif
 !                          
 !  Additions to evolution of bb
@@ -399,7 +427,8 @@ module Special
           df(l1:l2,m,n,iax:iaz) = df(l1:l2,m,n,iax:iaz) + eta*muSmu5oo
         endif
       endif
-      diffus_bb_1 = eta*p%mu5*sqrt(dxyz_2)
+!  Contributions to timestep from bb equation
+      dt1_bb_1 = eta*p%mu5*sqrt(dxyz_2)
 !
 !  Additions to evolution of uu
 !
@@ -416,12 +445,18 @@ module Special
                                         + eta*meanmu5*bbtest
       endif  
 !
-!  Contribution to the time-step
+!  Todal contribution to the timestep
 !
       if (lfirst.and.ldt) then
-        diffus_special = cdtchiral*max(diffus_mu5_1, diffus_mu5_2, &
-                         diffus_mu5_3, diffus_bb_1)
-        maxdiffus=max(maxdiffus,diffus_special)
+        if (lmuS) then
+          dt1_special = cdtchiral*max(dt1_mu5_1, dt1_mu5_2, &
+                          dt1_mu5_3, dt1_mu5_4, dt1_bb_1, &
+                          dt1_muS_1, dt1_muS_2) 
+        else
+          dt1_special = cdtchiral*max(dt1_mu5_1, dt1_mu5_2, &
+                          dt1_mu5_3, dt1_mu5_4, dt1_bb_1)
+        endif
+        maxdiffus=max(maxdiffus,dt1_special)
       endif
 !
 !  diagnostics
@@ -442,6 +477,10 @@ module Special
           call dot_mn(p%bb,p%gmu5,bgmu5)
           call sum_mn_name(bgmu5**2,idiag_bgmu5rms,lsqrt=.true.)
         endif
+        if (idiag_bgmuSrms/=0) then
+          call dot_mn(p%bb,p%gmuS,bgmuS)
+          call sum_mn_name(bgmuS**2,idiag_bgmuSrms,lsqrt=.true.)
+        endif
         if (idiag_mu5bjm/=0) then
           call dot_mn(p%bb,p%jj,bbjj)
           call sum_mn_name(p%mu5*bbjj,idiag_mu5bjm)
@@ -450,11 +489,16 @@ module Special
           call dot_mn(p%bb,p%jj,bbjj)
           call sum_mn_name((p%mu5*bbjj)**2,idiag_mu5bjrms,lsqrt=.true.)
         endif
-        if (idiag_dt_mu5_1/=0) call max_mn_name(-(1./diffus_mu5_1),idiag_dt_mu5_1,lneg=.true.)
-        if (idiag_dt_mu5_2/=0) call max_mn_name(-(1./diffus_mu5_2),idiag_dt_mu5_2,lneg=.true.)
-        if (idiag_dt_mu5_3/=0) call max_mn_name(-(1./diffus_mu5_3),idiag_dt_mu5_3,lneg=.true.)
-        if (idiag_dt_bb_1/=0) call max_mn_name(-(1./diffus_bb_1),idiag_dt_bb_1,lneg=.true.)
-        if (idiag_dt_chiral/=0) call max_mn_name(-(1./diffus_special),idiag_dt_chiral,lneg=.true.)
+        if (idiag_oogmu5rms/=0) call sum_mn_name(oogmu5**2,idiag_oogmu5rms,lsqrt=.true.)
+        if (idiag_oogmuSrms/=0) call sum_mn_name(oogmuS**2,idiag_oogmuSrms,lsqrt=.true.)
+        if (idiag_dt_mu5_1/=0) call max_mn_name(-(1./dt1_mu5_1),idiag_dt_mu5_1,lneg=.true.)
+        if (idiag_dt_mu5_2/=0) call max_mn_name(-(1./dt1_mu5_2),idiag_dt_mu5_2,lneg=.true.)
+        if (idiag_dt_mu5_3/=0) call max_mn_name(-(1./dt1_mu5_3),idiag_dt_mu5_3,lneg=.true.)
+        if (idiag_dt_mu5_4/=0) call max_mn_name(-(1./dt1_mu5_4),idiag_dt_mu5_4,lneg=.true.)
+        if (idiag_dt_bb_1/=0) call max_mn_name(-(1./dt1_bb_1),idiag_dt_bb_1,lneg=.true.)
+        if (idiag_dt_muS_1/=0) call max_mn_name(-(1./dt1_muS_1),idiag_dt_muS_1,lneg=.true.)
+        if (idiag_dt_muS_2/=0) call max_mn_name(-(1./dt1_muS_2),idiag_dt_muS_2,lneg=.true.)
+        if (idiag_dt_chiral/=0) call max_mn_name(-(1./dt1_special),idiag_dt_chiral,lneg=.true.)
         if (idiag_mu5bxm/=0) call sum_mn_name(p%mu5*p%bb(:,1),idiag_mu5bxm)
         if (idiag_mu5b2m/=0) call sum_mn_name(p%mu5*p%b2,idiag_mu5b2m)
         if (idiag_jxm /= 0) then
@@ -524,12 +568,14 @@ module Special
 !
       if (lreset) then
         idiag_muSm=0; idiag_muSrms=0
-        idiag_mu5m=0; idiag_mu5rms=0; idiag_bgmu5rms=0; 
+        idiag_mu5m=0; idiag_mu5rms=0; 
+        idiag_bgmu5rms=0; idiag_bgmuSrms=0;
         idiag_mu5bjm=0; idiag_mu5bjrms=0; idiag_gmu5rms=0;
         idiag_gmu5mx=0; idiag_gmu5my=0; idiag_gmu5mz=0;
         idiag_dt_chiral=0; idiag_dt_bb_1=0;
         idiag_dt_mu5_1=0; idiag_dt_mu5_2=0; idiag_dt_mu5_3=0;
-        idiag_jxm=0
+        idiag_dt_mu5_4=0; idiag_dt_muS_1=0; idiag_dt_muS_2=0;
+        idiag_jxm=0; idiag_oogmuSrms=0; idiag_oogmu5rms=0
       endif
 !
       do iname=1,nname
@@ -542,11 +588,17 @@ module Special
         call parse_name(iname,cname(iname),cform(iname),'gmu5my',idiag_gmu5my)
         call parse_name(iname,cname(iname),cform(iname),'gmu5mz',idiag_gmu5mz)
         call parse_name(iname,cname(iname),cform(iname),'bgmu5rms',idiag_bgmu5rms)
+        call parse_name(iname,cname(iname),cform(iname),'bgmuSrms',idiag_bgmuSrms)
         call parse_name(iname,cname(iname),cform(iname),'mu5bjm',idiag_mu5bjm)
         call parse_name(iname,cname(iname),cform(iname),'mu5bjrms',idiag_mu5bjrms)
+        call parse_name(iname,cname(iname),cform(iname),'oogmuSrms',idiag_oogmuSrms)
+        call parse_name(iname,cname(iname),cform(iname),'oogmu5rms',idiag_oogmu5rms)
         call parse_name(iname,cname(iname),cform(iname),'dt_mu5_1',idiag_dt_mu5_1)
         call parse_name(iname,cname(iname),cform(iname),'dt_mu5_2',idiag_dt_mu5_2)
         call parse_name(iname,cname(iname),cform(iname),'dt_mu5_3',idiag_dt_mu5_3)
+        call parse_name(iname,cname(iname),cform(iname),'dt_mu5_4',idiag_dt_mu5_4)
+        call parse_name(iname,cname(iname),cform(iname),'dt_muS_1',idiag_dt_muS_1)
+        call parse_name(iname,cname(iname),cform(iname),'dt_muS_2',idiag_dt_muS_2)
         call parse_name(iname,cname(iname),cform(iname),'dt_bb_1',idiag_dt_bb_1)
         call parse_name(iname,cname(iname),cform(iname),'dt_chiral',idiag_dt_chiral)
         call parse_name(iname,cname(iname),cform(iname),'mu5bxm',idiag_mu5bxm)
@@ -585,27 +637,29 @@ module Special
       use Mpicomm, only: mpiallreduce_sum
 !
       real, dimension (mx,my,mz,mfarray) :: f
-      real :: fact, meanmu5_tmp
+      real :: fact, meanmu5_tmp, nw1
       intent(inout) :: f
 !
 !  compute meanmu5
 !
       meanmu5=0.
-      do n=n1,n2
-      do m=m1,m2
+      do n=n1,n2; do m=m1,m2
         meanmu5=meanmu5+sum(f(l1:l2,m,n,imu5))
-      enddo
-      enddo
+!        print*, "sum(f(l1:l2,m,n,imu5))", sum(f(l1:l2,m,n,imu5))
+      enddo; enddo
 !
 !  communicate and divide by all mesh meshpoints
 !
-!JEN
-   !  if (nprocxy>1) then
+     if (nprocxy>1) then
    !    call mpiallreduce_sum(meanmu5,meanmu5_tmp,(/nx,ny,nz/))
-   !  endif
-   !  fact=1./ncpus
-!JEN.
-      meanmu5=fact*meanmu5_tmp
+       call mpiallreduce_sum(meanmu5,meanmu5_tmp)
+     endif
+!     fact=1./ncpus
+!
+! number of grid points
+      nw1=1./(nxgrid*nygrid*nzgrid)
+!
+      meanmu5=nw1*meanmu5_tmp
 !      flucmu5=p%mu5-meanmu5
 !
     endsubroutine special_after_boundary
@@ -840,19 +894,21 @@ module Special
 !
     endsubroutine special_boundconds
 !***********************************************************************
-    subroutine special_after_timestep(f,df,dt_)
+    subroutine special_after_timestep(f,df,dt_,llast)
 !
 !  Possibility to modify the f and df after df is updated.
 !  Used for the Fargo shift, for instance.
 !
 !  27-nov-08/wlad: coded
 !
+      logical, intent(in) :: llast
       real, dimension(mx,my,mz,mfarray), intent(inout) :: f
       real, dimension(mx,my,mz,mvar), intent(inout) :: df
       real, intent(in) :: dt_
 !
       call keep_compiler_quiet(f,df)
       call keep_compiler_quiet(dt_)
+      call keep_compiler_quiet(llast)
 !
     endsubroutine  special_after_timestep
 !***********************************************************************

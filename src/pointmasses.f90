@@ -24,7 +24,7 @@ module PointMasses
 !
   include 'pointmasses.h'
 !
-  character (len=10), dimension(mqarray) :: qvarname
+  character (len=labellen), dimension(mqarray) :: qvarname
   real, dimension(nqpar,mqarray) :: fq
   real, dimension(nqpar,mqvar) :: dfq
   real, dimension(nqpar,3) :: dfq_cart
@@ -60,9 +60,10 @@ module PointMasses
   !logical :: linertial_frame=.true.
   logical :: lnoselfgrav_primary=.true.
   logical :: lgas_gravity=.false.,ldust_gravity=.false.
+  logical :: lcorrect_gravity_lstart=.false.
 !
   character (len=labellen) :: initxxq='random', initvvq='nothing'
-  character (len=labellen), dimension (nqpar) :: ipotential_pointmass='newtonian'
+  character (len=labellen), dimension (nqpar) :: ipotential_pointmass='newton'
   character (len=2*bclen+1) :: bcqx='p', bcqy='p', bcqz='p'
 !
   type IndexDustParticles
@@ -78,10 +79,9 @@ module PointMasses
       linterpolate_gravity, linterpolate_quadratic_spline, laccretion, &
       accrete_hills_frac, iprimary, &
       ldt_pointmasses, cdtq, lretrograde, &
-!      linertial_frame,
-      eccentricity, semimajor_axis, & !lcartesian_evolution, &
+      eccentricity, semimajor_axis, & 
       ipotential_pointmass, density_scale,&
-      lgas_gravity,ldust_gravity
+      lgas_gravity,ldust_gravity,lcorrect_gravity_lstart
 !
   namelist /pointmasses_run_pars/ &
       lreset_cm, &
@@ -107,9 +107,9 @@ module PointMasses
 !
 !  27-aug-06/wlad: adapted
 !
-      use Particles_main, only: fetch_npvar,return_npvar
+      use Particles_main, only: append_particle_index
 !      
-      integer :: iqvar, npvar_aux
+      integer :: iqvar
 !
       if (lroot) call svn_id( &
           "$Id$")
@@ -157,12 +157,9 @@ module PointMasses
       endif
 !
       if (lparticles) then
-        call fetch_npvar(npvar_aux)
-        ivpx_cart = npvar_aux+1
-        ivpy_cart = npvar_aux+2
-        ivpz_cart = npvar_aux+3
-        npvar_aux=npvar_aux+3
-        call return_npvar(npvar_aux)
+        call append_particle_index('ivpx_cart',ivpx_cart)
+        call append_particle_index('ivpy_cart',ivpy_cart)
+        call append_particle_index('ivpz_cart',ivpz_cart)
       endif
 !
       if (lroot) then
@@ -209,10 +206,7 @@ module PointMasses
 !  When first called, nqpar was zero, so no diagnostic index was written to
 !  index.pro
 !
-      if (lroot) open(3, file=trim(datadir)//'/index.pro', &
-          STATUS='old', POSITION='append')
       call rprint_pointmasses(.false.,LWRITE=lroot)
-      if (lroot) close(3)
 !
 !  G_Newton. Overwrite the one set by start.in if set again here,
 !  because I might want units in which both G and GM are 1.
@@ -725,9 +719,15 @@ module PointMasses
 !
         if (iprimary == 2) isecondary=1
         velocity(isecondary,2) = sqrt((1-eccentricity)/(1+eccentricity) * GNewton/semimajor_axis) * pmass(  iprimary)/totmass
-        velocity(  iprimary,2) = sqrt((1-eccentricity)/(1+eccentricity) * GNewton/semimajor_axis) * pmass(isecondary)/totmass
+!
+!  Correct secondary by gas gravity 
+!
+        if (lcorrect_gravity_lstart) call initcond_correct_selfgravity(f,velocity,isecondary)
+!
+        velocity(  iprimary,2) = velocity(isecondary,2) * pmass(isecondary)/pmass(iprimary)
 !
 !  Revert all velocities if retrograde.
+!
 !
         if (lretrograde) velocity=-velocity
 !
@@ -1127,10 +1127,10 @@ module PointMasses
 !
             r2_ij=rr2
             if (r2_ij .gt. hill_radius_square(ks)) then
-              Omega2_pm = GNewton*pmass(ks)*r2_ij**(-1.5)
+              Omega2_pm =  GNewton*pmass(ks)*r2_ij**(-1.5)
             else
               rhill1=1./sqrt(hill_radius_square(ks))
-              Omega2_pm = GNewton*pmass(ks)*(3*sqrt(r2_ij)*rhill1 - 4)*rhill1**3
+              Omega2_pm = -GNewton*pmass(ks)*(3*sqrt(r2_ij)*rhill1 - 4)*rhill1**3
             endif
 !
 
@@ -1557,13 +1557,27 @@ module PointMasses
 !
       real, dimension (mx,nqpar) :: rp_mn,rpcyl_mn
       real, dimension (mx,3)     :: ggp,ggt
-      real, dimension (mx)       :: grav_particle,rrp
-      integer                    :: ks
+      real, dimension (mx)       :: Omega2_pm,rrp
+      real                       :: rr,rp1,rhill,rhill1
+      integer                    :: ks,i
 !
       intent(out) :: ggt
 !
       ggt=0.
       do ks=1,nqpar
+!
+!  Hill radius
+!
+        if (lcartesian_coords) then 
+          rp1 = sqrt(fq(ks,ixq)**2+fq(ks,iyq)**2+fq(ks,izq)**2)
+        elseif (lcylindrical_coords) then
+          rp1 = sqrt(fq(ks,ixq)**2+              fq(ks,izq)**2)
+        elseif (lspherical_coords) then
+          rp1 =      fq(ks,ixq)
+        endif
+!
+        rhill  = rp1*(GNewton*pmass(ks)/3.)**(1./3)
+        rhill1 = 1./rhill
 !
 !  Spherical and cylindrical distances
 !
@@ -1580,8 +1594,56 @@ module PointMasses
 !
 !  Gravity field from the particle ks
 !
-        grav_particle =-GNewton*pmass(ks)*(rrp**2+r_smooth(ks)**2)**(-1.5)
-        call get_gravity_field_pointmasses(grav_particle,ggp,ks)
+        select case (ipotential_pointmass(ks))
+!
+        case ('plummer')
+!
+!  Potential of a Plummer sphere
+!
+          if (ks==iprimary) call fatal_error("get_total_gravity",&
+               "The primary can only be newtonian, please switch ipotential_pointmass")
+          Omega2_pm =-GNewton*pmass(ks)*(rrp**2+r_smooth(ks)**2)**(-1.5)
+!
+        case ('boley')
+!
+!  Correct potential outside Hill sphere
+!
+          if (ks==iprimary) call fatal_error("get_total_gravity",&
+               "The primary can only be newtonian, please switch ipotential_pointmass")
+          do i=1,mx
+            if (rrp(i) .gt. rhill) then
+              Omega2_pm(i) = -GNewton*pmass(ks)*rrp(i)**(-3)
+            else
+              Omega2_pm(i) =  GNewton*pmass(ks)*(3*rrp(i)*rhill1 - 4)*rhill1**3
+            endif
+          enddo
+!
+        case ('newton-hill','newton','newtonian')
+!
+!  Newtonian potential; same as boley but constant inside rsmooth
+!
+          if (ks==iprimary.and.r_smooth(ks)/=0) call fatal_error("get_total_gravity",&
+               "Use r_smooth=0 for the primary's potential")
+!
+          do i=1,mx
+            rr=max(rrp(i),r_smooth(ks))
+            if (rr > 0) then
+              Omega2_pm(i) = -GNewton*pmass(ks)*rr**(-3)
+            else                ! can happen during pencil_check
+              Omega2_pm(i) = 0.
+            endif
+          enddo
+!                                                                                                                                     
+        case default
+!                                                                                                                                     
+!  Catch unknown values                                                                                                               
+!                                                                                                                                     
+          if (lroot) print*, 'get_total_gravity: '//&
+               'No such value for ipotential_pointmass: ', trim(ipotential_pointmass(ks))
+          call fatal_error("","")
+        endselect
+!
+        call get_gravity_field_pointmasses(Omega2_pm,ggp,ks)
 !
         if ((ks==iprimary).and.lnogravz_star) &
             ggp(:,3) = 0.
@@ -1617,6 +1679,169 @@ module PointMasses
       endif
 !
     endsubroutine add_indirect_term
+!***********************************************************************
+    subroutine initcond_correct_selfgravity(f,velocity,k)
+!
+!  Calculates acceleration on the point (x,y,z)=xxpar
+!  due to the gravity of the gas+dust.
+!
+!  29-aug-18/wlad : coded
+!
+      use Mpicomm
+      use Sub, only: get_radial_distance
+!
+      implicit none
+      real, dimension (mx,my,mz,mfarray) :: f
+      real, dimension(nqpar,3), intent(inout) :: velocity
+      real, dimension(3) :: xxpar,sum_loc,accg
+      real, dimension(nx,3) :: dist
+      real, dimension(nx) :: rrp,rp_mn,rpcyl_mn,selfgrav,density
+      real, dimension(nx) :: dv,jac,dqy,tmp
+      real :: vphi,phidot2,OO,rr
+      real :: dqx,dqz,rp0,fac
+      integer :: j,k
+!
+!  Sanity check
+!
+      !if (.not.(lgas_gravity.or.ldust_gravity)) &
+      !     call fatal_error("initcond_correct_selfgravity",&
+      !     "No gas gravity or dust gravity to add. "//&
+      !     "Switch on lgas_gravity or ldust_gravity in n-body parameters")
+!
+      xxpar = fq(k,ixq:izq)
+      rp0=r_smooth(k)
+!      
+      sum_loc=0.
+!      
+      mloop: do m=m1,m2
+      nloop: do n=n1,n2
+
+        if (coord_system=='cartesian') then
+          jac=1.;dqx=dx;dqy=dy;dqz=dz
+          dist(:,1)=x(l1:l2)-xxpar(1)
+          dist(:,2)=y(  m  )-xxpar(2)
+          dist(:,3)=z(  n  )-xxpar(3)
+        elseif (coord_system=='cylindric') then
+          jac=x(l1:l2);dqx=dx;dqy=x(l1:l2)*dy;dqz=dz
+          dist(:,1)=x(l1:l2)-xxpar(1)*cos(y(m)-xxpar(2))
+          dist(:,2)=         xxpar(2)*sin(y(m)-xxpar(2))
+          dist(:,3)=z(  n  )-xxpar(3)
+        elseif (coord_system=='spherical') then
+          call fatal_error('integrate_selfgravity', &
+               ' not yet implemented for spherical polars')
+           dqx=0.;dqy=0.;dqz=0.
+        else
+          call fatal_error('integrate_selfgravity','wrong coord_system')
+          dqx=0.;dqy=0.;dqz=0.
+        endif
+!
+        if (nzgrid==1) then
+          dv=dqx*dqy
+        else
+          dv=dqx*dqy*dqz
+        endif
+!
+!  The gravity of every single cell - should exclude inner and outer radii...
+!
+!  selfgrav = G*((rho+rhop)*dv)*mass*r*(r**2 + r0**2)**(-1.5)
+!  gx = selfgrav * r\hat dot x\hat
+!  -> gx = selfgrav * (x-x0)/r = G*((rho+rhop)*dv)*mass*(r**2+r0**2)**(-1.5) * (x-x0)
+!
+        density=0.
+        if (ldensity_nolog) then
+           density=f(l1:l2,m,n,irho)
+        else
+           density=exp(f(l1:l2,m,n,ilnrho))
+        endif
+!
+!  Add the particle gravity if npar>mspar (which means dust is being used)
+!
+        !if (ldust.and.ldust_gravity) density=density+f(l1:l2,m,n,irhop)
+!
+        call get_radial_distance(rp_mn,rpcyl_mn,E1_=xxpar(1),E2_=xxpar(1),E3_=xxpar(1))
+        if (lcylindrical_gravity_nbody(k)) then
+           rrp=rpcyl_mn
+        else
+           rrp=rp_mn
+        endif
+!
+        selfgrav = GNewton*density_scale*&
+             density*jac*dv*(rrp**2 + rp0**2)**(-1.5)
+!
+!  Everything inside the accretion radius of the particle should
+!  not exert gravity (numerical problems otherwise)
+!
+        where (rrp<=rp0)
+          selfgrav = 0
+        endwhere
+!
+!  Exclude the frozen zones
+!
+      if (lcartesian_coords) call fatal_error("","")
+!
+!  Integrate the accelerations on this processor
+!  And sum over processors with mpireduce
+!
+      do j=1,3
+        tmp=selfgrav*dist(:,j)
+        !take proper care of the trapezoidal rule
+        !in the case of non-periodic boundaries
+        fac = 1.
+        if ((m==m1.and.lfirst_proc_y).or.(m==m2.and.llast_proc_y)) then
+          if (.not.lperi(2)) fac = .5*fac
+        endif
+!
+        if (lperi(1)) then
+          sum_loc(j) = sum_loc(j)+fac*sum(tmp)
+        else
+          sum_loc(j) = sum_loc(j)+fac*(sum(tmp(2:nx-1))+.5*(tmp(1)+tmp(nx)))
+        endif        
+     enddo
+    enddo nloop
+    enddo mloop
+!
+    do j=1,3
+      call mpireduce_sum(sum_loc(j),accg(j))
+    enddo
+!
+!  Broadcast particle acceleration
+!
+    call mpibcast_real(accg,3)
+!
+!  Correct original velocity by this acceleration
+!      phidot2 = Omegak2 + accg/r
+!
+!  Current azimuthal velocity and azimuthal frequency
+!
+    if (lcylindrical_coords) then
+       vphi = velocity(k,2)
+       rr = fq(k,ixq)
+    elseif (lspherical_coords) then
+       vphi = velocity(k,3)
+       rr = fq(k,ixq)*sin(fq(k,iyq))
+    endif
+!
+    OO = vphi/rr
+!
+!  Update angular velocity by selfgravitational acceleration
+!   
+!  phidot**2 = OmegaK**2 + 1/r (d/dr PHI_sg)
+!
+!  This line assumes axisymmetry
+!
+    phidot2 = OO**2 + accg(1)/rr
+!
+!  Corrected velocity
+!
+    vphi = sqrt(phidot2) * rr
+!
+    if (lcylindrical_coords) then
+       velocity(k,2) = vphi
+    elseif (lspherical_coords) then
+       velocity(k,3) = vphi
+    endif
+!
+    endsubroutine initcond_correct_selfgravity
 !***********************************************************************
     subroutine integrate_selfgravity(p,rrp,xxpar,accg,rp0)
 !
@@ -1738,28 +1963,17 @@ module PointMasses
 !
     endsubroutine integrate_selfgravity
 !***********************************************************************
-
     subroutine pointmasses_read_snapshot(filename)
 !
 !  Read nbody particle info
 !
 !  01-apr-08/wlad: dummy
 !
-      use Mpicomm, only: mpibcast_real
+      use IO, only: input_pointmass
 !
-      character (len=*) :: filename
-      integer :: nqpar_read
+      character (len=*), intent(in) :: filename
 !
-      if (lroot) then
-        open(1,FILE=filename,FORM='unformatted')
-        read(1) nqpar_read
-        if (nqpar_read /= nqpar) call fatal_error("","")
-        if (nqpar_read/=0) read(1) fq
-        if (ip<=8) print*, 'read snapshot', filename
-        close(1)
-      endif
-!
-      call mpibcast_real(fq,(/nqpar,mqarray/))
+      call input_pointmass(filename, qvarname, fq, nqpar, mqarray)
 !
       if (ldebug) then
         print*,'pointmasses_read_snapshot'
@@ -1770,63 +1984,53 @@ module PointMasses
 !
     endsubroutine pointmasses_read_snapshot
 !***********************************************************************
-    subroutine pointmasses_write_snapshot(snapbase,enum,flist)
+    subroutine pointmasses_write_snapshot(file,enum,flist)
 !
       use General, only:safe_character_assign
       use Sub, only: update_snaptime, read_snaptime
-      use IO, only: lun_output,log_filename_to_file
+      use IO, only: log_filename_to_file, output_pointmass
 !
 !  Input and output of information about the massive particles
 !
 !  01-apr-08/wlad: coded
 !
+      character (len=*), intent(in) :: file
+      logical, intent(in) :: enum
+      character (len=*), optional, intent(in) :: flist
+!
       logical, save :: lfirst_call=.true.
       integer, save :: nsnap
       real, save :: tsnap
-      character (len=*) :: snapbase,flist
-      character (len=fnlen) :: snapname, filename_diag
-      logical :: enum,lsnap
+      character (len=fnlen) :: filename, filename_diag
+      logical :: lsnap
       character (len=intlen) :: nsnap_ch
-      optional :: flist
 !
+!  Input is either file=qvar if enum=F or file=QVAR if enum=T.
+!  If the latter, append a number to QVAR.
+!      
+      filename = trim(file)
       if (enum) then
 !
+!  Prepare to read tsnap.dat         
+!
+        call safe_character_assign(filename_diag,trim(datadir)//'/tsnap.dat')
+!        
+!  Read the tsnap.dat to get N for QVARN (N=nsnap).
+!
         if (lfirst_call) then
-          call safe_character_assign(filename_diag,trim(datadir)//'/tsnap.dat')
           call read_snaptime(filename_diag,tsnap,nsnap,dsnap,t)
           lfirst_call=.false.
         endif
 !
+!  Update snaptime to set nsnap_ch=N and append N to filename QVARN.
+!
         call update_snaptime(filename_diag,tsnap,nsnap,dsnap,t,lsnap,nsnap_ch,nowrite=.true.)
-        if (lsnap) then
-          snapname=trim(snapbase)//nsnap_ch
+        call safe_character_assign(filename,trim(filename)//trim(nsnap_ch))
+      endif
 !
-!  Write number of massive particles and their data -- only root needs. 
-!
-          if (lroot) then
-            open(lun_output,FILE=snapname,FORM='unformatted')
-            write(lun_output) nqpar
-            if (nqpar/=0) write(lun_output) fq
-            write(lun_output) t
-            close(lun_output)
-            if (ip<=10) print*,'written snapshot ', snapname
-          endif
-          if (present(flist)) call log_filename_to_file(snapname,flist)
-        endif
-      else
-!
-!  Write snapshot without label
-!
-        snapname=snapbase
-        if (lroot) then 
-          open(lun_output,FILE=snapname,FORM='unformatted')
-          write(lun_output) nqpar
-          if (nqpar/=0) write(lun_output) fq
-          write(lun_output) t
-          close(lun_output)
-          if (ip<=10) print*,'written snapshot ', snapname
-        endif
-        if (present(flist)) call log_filename_to_file(snapname,flist)
+      if (lsnap .or. .not. enum ) then
+        call output_pointmass (filename, qvarname, fq, nqpar, mqarray)
+        if (lroot .and. present(flist)) call log_filename_to_file(filename,flist)
       endif
 !
     endsubroutine pointmasses_write_snapshot
@@ -1852,6 +2056,7 @@ module PointMasses
 !  17-nov-05/anders+wlad: adapted
 !
       use Diagnostics
+      use FArrayManager, only: farray_index_append
       use General, only: itoa
 !
       logical :: lreset,lwr
@@ -1867,13 +2072,13 @@ module PointMasses
       if (present(lwrite)) lwr=lwrite
 !
       if (lwr) then
-        write(3,*) 'ixq=',ixq 
-        write(3,*) 'iyq=',iyq 
-        write(3,*) 'izq=',izq
-        write(3,*) 'ivxq=',ivxq 
-        write(3,*) 'ivyq=',ivyq 
-        write(3,*) 'ivzq=',ivzq
-        write(3,*) 'imass=', imass
+        call farray_index_append('ixq',ixq)
+        call farray_index_append('iyq',iyq)
+        call farray_index_append('izq',izq)
+        call farray_index_append('ivxq',ivxq)
+        call farray_index_append('ivyq',ivyq)
+        call farray_index_append('ivzq',ivzq)
+        call farray_index_append('imass',imass)
       endif
 !
 !  Reset everything in case of reset
@@ -1906,10 +2111,8 @@ module PointMasses
 !  Run through parse list again
 !
           if (lwr) then
-            write(3,*) ' i_'//trim(str)//'q'//trim(sks)//'=',&
-                 idiag_xxq(ks,j)
-            write(3,*) 'i_v'//trim(str)//'q'//trim(sks)//'=',&
-                 idiag_vvq(ks,j)
+            call farray_index_append('i_'//trim(str)//'q'//trim(sks),idiag_xxq(ks,j))
+            call farray_index_append('i_v'//trim(str)//'q'//trim(sks),idiag_vvq(ks,j))
           endif
 !
         enddo
@@ -1930,12 +2133,12 @@ module PointMasses
         enddo
 !
         if (lwr) then
-          write(3,*) 'i_torqint_'//trim(sks)//'=',idiag_torqint(ks)
-          write(3,*) 'i_torqext_'//trim(sks)//'=',idiag_torqext(ks)
-          write(3,*) 'i_torqint_gas'//trim(sks)//'=',idiag_torqint(ks)
-          write(3,*) 'i_torqext_gas'//trim(sks)//'=',idiag_torqext(ks)
-          write(3,*) 'i_torqint_par'//trim(sks)//'=',idiag_torqint(ks)
-          write(3,*) 'i_torqext_par'//trim(sks)//'=',idiag_torqext(ks)
+          call farray_index_append('i_torqint_'//trim(sks),idiag_torqint(ks))
+          call farray_index_append('i_torqext_'//trim(sks),idiag_torqext(ks))
+          call farray_index_append('i_torqint_gas'//trim(sks),idiag_torqint(ks))
+          call farray_index_append('i_torqext_gas'//trim(sks),idiag_torqext(ks))
+          call farray_index_append('i_torqint_par'//trim(sks),idiag_torqint(ks))
+          call farray_index_append('i_torqext_par'//trim(sks),idiag_torqext(ks))
         endif
       enddo
 !
@@ -1946,7 +2149,7 @@ module PointMasses
       enddo
 !
        if (lwr) then
-         write(3,*) 'i_totenergy=',idiag_totenergy
+         call farray_index_append('i_totenergy',idiag_totenergy)
        endif
 !
     endsubroutine rprint_pointmasses
@@ -2041,6 +2244,30 @@ module PointMasses
                 call fatal_error_local('boundconds_pointmasses','')
               endif
             endif
+          elseif (boundy=='p2pi') then
+!  yp < y0
+            if (fq(k,iyq)< -pi) then
+              fq(k,iyq)=fq(k,iyq)+2*pi
+              if (fq(k,iyq)<-pi) then
+                print*, 'boundconds_pointmasses: ERROR - particle ', k, &
+                     ' was further than Ly outside the simulation box!'
+                print*, 'This must never happen.'
+                print*, 'xxq=', fq(k,ixq:izq)
+                call fatal_error_local('boundconds_pointmasses','')
+              endif
+            endif
+!  yp > y1
+            if (fq(k,iyq)>=pi) then
+              fq(k,iyq)=fq(k,iyq)-2*pi
+              if (fq(k,iyq)>=pi) then
+                print*, 'boundconds_pointmasses: ERROR - particle ', k, &
+                     ' was further than Ly outside the simulation box!'
+                print*, 'This must never happen.'
+                print*, 'xxq=', fq(k,ixq:izq)
+                call fatal_error_local('boundconds_pointmasses','')
+              endif
+            endif
+
           elseif (boundy=='out') then
             ! massive particles can be out of the box
             ! the star, for example, in a cylindrical simulation

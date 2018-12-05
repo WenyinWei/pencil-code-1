@@ -180,7 +180,7 @@ module Initcond
         f(:,:,:,i)=f(:,:,:,i)+ampl*(spread(spread(sin(kx1*x),2,my),3,mz)&
                                    *spread(spread(sin(ky1*y),1,mx),3,mz)&
                                    *spread(spread(sin(kz1*z),1,mx),2,my))
-!XXX
+!
       endif
 !
     endsubroutine sinx_siny_sinz
@@ -2595,11 +2595,12 @@ module Initcond
 !
 !  Select the right region for the processor afterwards.
 !
-      select case (n)
+!--   select case (n)
 !
 !  Without ghost zones.
 !
-      case (nzgrid+1)
+!--   case (nzgrid+1)
+      if (n==(nzgrid+1)) then
         if (lentropy) then
           do n=n1,n2
             f(:,:,n,ilnrho)=lnrho0(ipz*nz+(n-nghost))
@@ -2627,7 +2628,8 @@ module Initcond
 !
 !  With ghost zones.
 !
-      case (mzgrid+1)
+!--   case (mzgrid+1)
+      elseif (n==(mzgrid+1)) then
         if (lentropy) then
           do n=1,mz
             f(:,:,n,ilnrho)=lnrho0(ipz*nz+n)
@@ -2646,7 +2648,8 @@ module Initcond
           enddo
         endif
 !
-      case default
+!--   case default
+      else
         if (lroot) then
           print '(A,I4,A,I4,A,I4,A)','ERROR: The stratification file '// &
                 'for this run is allowed to contain either',nzgrid, &
@@ -2656,29 +2659,30 @@ module Initcond
         endif
         call fatal_error('','')
 !
-      endselect
+!--   endselect
+      endif
 !
 !  occupy profile arrays
 !
-        if (lentropy) then
-          do n=1,mz
-            lnrho_mz(n)=lnrho0(ipz*nz+n)
-            ss_mz(n)=ss0(ipz*nz+n)
-          enddo
-          call write_zprof('ss_mz',ss_mz)
-        endif
-        if (ltemperature) then
-          do n=1,mz
-            lnrho_mz(n)=lnrho0(ipz*nz+n)
-            lnTT_mz(n)=lnTT0(ipz*nz+n)
-          enddo
-          call write_zprof('lnTT_mz',lnTT_mz)
-        endif
-        if (.not.lentropy.and..not.ltemperature) then
-          do n=1,mz
-            lnrho_mz(n)=lnrho0(ipz*nz+n)
-          enddo
-        endif
+      if (lentropy) then
+        do n=1,mz
+          lnrho_mz(n)=lnrho0(ipz*nz+n)
+          ss_mz(n)=ss0(ipz*nz+n)
+        enddo
+        if (lcooling_ss_mz) call write_zprof('ss_mz',ss_mz)
+      endif
+      if (ltemperature) then
+        do n=1,mz
+          lnrho_mz(n)=lnrho0(ipz*nz+n)
+          lnTT_mz(n)=lnTT0(ipz*nz+n)
+        enddo
+        if (lcooling_ss_mz) call write_zprof('lnTT_mz',lnTT_mz)
+      endif
+      if (.not.lentropy.and..not.ltemperature) then
+        do n=1,mz
+          lnrho_mz(n)=lnrho0(ipz*nz+n)
+        enddo
+      endif
 !
       close(19)
 !
@@ -2749,11 +2753,12 @@ module Initcond
 !
 !  select the right region for the processor afterwards
 !
-      select case (n)
+!--   select case (n)
   !
   !  without ghost zones
   !
-      case (nxgrid+1)
+!--   case (nxgrid+1)
+      if (n==nxgrid+1) then
         if (lentropy) then
           do n=l1,l2
             f(n,:,:,ilnrho)=lnrho0(ipx*nx+(n-nghost))
@@ -2769,7 +2774,8 @@ module Initcond
   !
   !  with ghost zones
   !
-      case (mxgrid+1)
+!--   case (mxgrid+1)
+      elseif (n==mxgrid+1) then
         if (lentropy) then
           do n=1,mx
             f(n,:,:,ilnrho)=lnrho0(ipx*nx+n)
@@ -2783,7 +2789,8 @@ module Initcond
           enddo
         endif
 !
-      case default
+!--   case default
+      else
         if (lroot) then
           print '(A,I4,A,I4,A,I4,A)','ERROR: The stratification file '// &
                 'for this run is allowed to contain either',nxgrid, &
@@ -2793,7 +2800,8 @@ module Initcond
         endif
         call fatal_error('','')
 !
-      endselect
+!--   endselect
+      endif
 !
       close(19)
 !
@@ -4707,7 +4715,7 @@ module Initcond
       if (present(lscale_tobox)) then
         lscale_tobox1 = lscale_tobox
       else
-        lscale_tobox1 = .false.
+        lscale_tobox1 = .true.
       endif
 !
 !  Allocate memory for arrays.
@@ -4738,15 +4746,15 @@ module Initcond
 !  calculate k^2
 !
         scale_factor=1
-        if (lscale_tobox1) scale_factor=2*pi/Lx
+        if (.not.lscale_tobox1) scale_factor=2*pi/Lx
         kx=cshift((/(i-(nxgrid+1)/2,i=0,nxgrid-1)/),+(nxgrid+1)/2)*scale_factor
 !
         scale_factor=1
-        if (lscale_tobox1) scale_factor=2*pi/Ly
+        if (.not.lscale_tobox1) scale_factor=2*pi/Ly
         ky=cshift((/(i-(nygrid+1)/2,i=0,nygrid-1)/),+(nygrid+1)/2)*scale_factor
 !
         scale_factor=1
-        if (lscale_tobox1) scale_factor=2*pi/Lz
+        if (.not.lscale_tobox1) scale_factor=2*pi/Lz
         kz=cshift((/(i-(nzgrid+1)/2,i=0,nzgrid-1)/),+(nzgrid+1)/2)*scale_factor
 !
 !  integration over shells
@@ -4847,7 +4855,7 @@ module Initcond
       if (present(lscale_tobox)) then
         lscale_tobox1 = lscale_tobox
       else
-        lscale_tobox1 = .false.
+        lscale_tobox1 = .true.
       endif
 !
 !  Allocate memory for arrays.
@@ -4885,15 +4893,15 @@ module Initcond
 !  calculate k^2
 !
         scale_factor=1
-        if (lscale_tobox1) scale_factor=2*pi/Lx
+        if (.not.lscale_tobox1) scale_factor=2*pi/Lx
         kx=cshift((/(i-(nxgrid+1)/2,i=0,nxgrid-1)/),+(nxgrid+1)/2)*scale_factor
 !
         scale_factor=1
-        if (lscale_tobox1) scale_factor=2*pi/Ly
+        if (.not.lscale_tobox1) scale_factor=2*pi/Ly
         ky=cshift((/(i-(nygrid+1)/2,i=0,nygrid-1)/),+(nygrid+1)/2)*scale_factor
 !
         scale_factor=1
-        if (lscale_tobox1) scale_factor=2*pi/Lz
+        if (.not.lscale_tobox1) scale_factor=2*pi/Lz
         kz=cshift((/(i-(nzgrid+1)/2,i=0,nzgrid-1)/),+(nzgrid+1)/2)*scale_factor
 !
 !  Set k^2 array. Note that in Fourier space, kz is the fastest index and has
@@ -4934,11 +4942,11 @@ module Initcond
 !  which comes from a kpeak^3 factor in the k^2 dk integration.
 !  The 1/2 factor comes from setting uk (as opposed to uk^2).
 !
+        fact=(kpeak1*scale_factor)**1.5
         if (lvectorpotential) then
-          fact=kpeak1**2.5
+          fact=fact*kpeak1
           if (kgaussian /= 0.) fact=fact*kgaussian**(-.5*(initpower+3.))
         else
-          fact=kpeak1**1.5
           if (kgaussian /= 0.) fact=fact*kgaussian**(-.5*(initpower+1.))
         endif
         r=fact*((k2*kpeak21)**mhalf)/(1.+(k2*kpeak21)**nexp1)**nexp2
@@ -6191,7 +6199,7 @@ module Initcond
       if (lspherical_coords) then
         do m = m1,m2
           do l = l1,l2
-            rpart = amp*(x(l1)-x(l))*(x(l2)-x(l))
+            rpart = amp*(xyz0(1)-x(l))*(xyz1(1)-x(l))
             f(l,m,:,ix:ix+1) = 0.
             f(l,m,:,ix+2)    = rpart*sin(y(m))
           enddo
@@ -6216,7 +6224,7 @@ module Initcond
       if (lspherical_coords) then
         do m = m1,m2
           do l = l1,l2
-            rpart = amp*(x(l1)-x(l))*(x(l2)-x(l))
+            rpart = amp*(xyz0(1)-x(l))*(xyz1(1)-x(l))
             f(l,m,:,ix)   = 2.*rpart*cos(y(m))
             f(l,m,:,ix+1) = rpart*sin(y(m))
             f(l,m,:,ix+2) = 0.

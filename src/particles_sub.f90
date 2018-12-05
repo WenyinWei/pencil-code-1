@@ -16,7 +16,8 @@ module Particles_sub
 !
   private
 !
-  public :: input_particles, output_particles, boundconds_particles
+  public :: input_particles, output_particles
+  public :: append_npvar, append_npaux, boundconds_particles
   public :: sum_par_name, max_par_name, integrate_par_name
   public :: remove_particle, get_particles_interdistance
   public :: count_particles, output_particle_size_dist
@@ -38,45 +39,17 @@ module Particles_sub
 !
 !  Read snapshot file with particle data.
 !
-!  29-dec-04/anders: adapted from input
+!  24-Oct-2018/PABourdin: coded
 !
-      use Mpicomm, only: mpireduce_max_scl_int
+      use IO, only: input_part_snap
 !
-      real, dimension (mpar_loc,mparray) :: fp
-      character (len=*) :: filename
-      integer, dimension (mpar_loc) :: ipar
+      character(len=*), intent(in) :: filename
+      real, dimension (mpar_loc,mparray), intent(out) :: fp
+      integer, dimension(mpar_loc), intent(out) :: ipar
 !
-      intent (in) :: filename
-      intent (out) :: fp,ipar
+      if (ip<=8.and.lroot) print*,'input_particles: reading snapshot file '//filename
 !
-      open(1,FILE=filename,FORM='unformatted')
-!
-!  First read the number of particles present at the processor and the index
-!  numbers of the particles.
-!
-        read(1) npar_loc
-        if (npar_loc/=0) read(1) ipar(1:npar_loc)
-!
-!  Then read particle data.
-!
-        if (npar_loc/=0) read(1) fp(1:npar_loc,:)
-!
-!  Read snapshot time.
-!
-!        read(1) t
-!
-        if (ip<=8) print*, 'input_particles: read ', filename
-!
-      close(1)
-!
-!  If we are inserting particles contiuously during the run root must
-!  know the total number of particles in the simulation.
-!
-      if (npar_loc/=0) then
-        call mpireduce_max_scl_int(maxval(ipar(1:npar_loc)),npar_total)
-      else
-        call mpireduce_max_scl_int(npar_loc,npar_total)
-      endif
+      call input_part_snap (ipar, fp, mpar_loc, npar_loc, npar_total, filename)
 !
     endsubroutine input_particles
 !***********************************************************************
@@ -84,38 +57,59 @@ module Particles_sub
 !
 !  Write snapshot file with particle data.
 !
-!  29-dec-04/anders: adapted from output
+!  24-Oct-2018/PABourdin: coded
 !
-      character(len=*) :: filename
-      real, dimension (mpar_loc,mparray) :: fp
-      integer, dimension(mpar_loc) :: ipar
-      real :: t_sp   ! t in single precision for backwards compatibility
+      use IO, only: output_part_snap
 !
-      intent (in) :: filename, ipar
+      character(len=*), intent(in) :: filename
+      real, dimension (mpar_loc,mparray), intent(in) :: fp
+      integer, dimension(mpar_loc), intent(in) :: ipar
 !
-      t_sp = t
-      if (ip<=8.and.lroot) print*,'output_particles: writing snapshot file '// &
-          filename
+      if (ip<=8.and.lroot) print*,'output_particles: writing snapshot file '//filename
 !
-      open(lun_output,FILE=filename,FORM='unformatted')
-!
-!  First write the number of particles present at the processor and the index
-!  numbers of the particles.
-!
-        write(lun_output) npar_loc
-        if (npar_loc/=0) write(lun_output) ipar(1:npar_loc)
-!
-!  Then write particle data.
-!
-        if (npar_loc/=0) write(lun_output) fp(1:npar_loc,:)
-!
-!  Write time and grid parameters.
-!
-        write(lun_output) t_sp, x, y, z, dx, dy, dz
-!
-      close(lun_output)
+      call output_part_snap (ipar, fp, mpar_loc, npar_loc, filename, ltruncate=.true.)
 !
     endsubroutine output_particles
+!***********************************************************************
+    subroutine append_npvar(label,ilabel)
+!
+      use General, only: itoa
+      use HDF5_IO, only: particle_index_append
+!
+      character (len=*), intent(in) :: label
+      integer, intent(out) :: ilabel
+!
+      npvar = npvar + 1
+      ilabel = npvar
+      pvarname(ilabel) = trim(label)
+      call particle_index_append(label,ilabel)
+!
+      if (npvar > mpvar) then
+        ! fp and dfp arrays are too small
+        call fatal_error('append_npvar', 'npvar('//trim(itoa(npvar))//') > mpvar('//trim(itoa(mpvar))//') @ "'//trim(label)//'"')
+      endif
+!
+    endsubroutine append_npvar
+!***********************************************************************
+    subroutine append_npaux(label,ilabel)
+!
+      use General, only: itoa
+      use HDF5_IO, only: particle_index_append
+!
+      character (len=*), intent(in) :: label
+      integer, intent(out) :: ilabel
+!
+      npaux = npaux + 1
+      ilabel = mpvar + npaux
+      pvarname(ilabel) = trim(label)
+      call particle_index_append(label,ilabel)
+!
+      if (npaux > mpaux) then
+        ! fp and dfp arrays are too small
+        call fatal_error('append_npaux', 'npaux('//trim(itoa(npaux))//') > mpaux('//trim(itoa(mpaux))//') @ "'//trim(label)//'"')
+      endif
+!
+    endsubroutine append_npaux
 !***********************************************************************
     subroutine boundconds_particles(fp,ipar,dfp,linsert)
 !
@@ -134,6 +128,8 @@ module Particles_sub
       logical, optional :: linsert
 !
       real :: xold, yold, rad, r1old, OO, tmp
+      real, dimension(3) :: vavg
+!      
       integer :: k, ik, k1, k2
 !
       intent (inout) :: fp, ipar, dfp
@@ -145,6 +141,9 @@ module Particles_sub
       else
         k1=1; k2=npar_loc; ik=1
       endif
+!
+      if (bcpx=='flg') &
+           call calc_velocity_averages(fp,k1,k2,ik,vavg)
 !
       do k=k1,k2,ik
 !
@@ -228,9 +227,10 @@ module Particles_sub
 !   Zero radial, Keplerian azimuthal, velocities
                 fp(k,ivpx) = 0.
 !   Keplerian azimuthal velocity
-                fp(k,ivpy) = fp(k,ixp)**(-1.5)
+                OO = rp_ext**(-1.5)
+                fp(k,ivpy) = OO*fp(k,ixp)
               endif
-!
+!             
             elseif (lcartesian_coords) then
 !
 ! The Cartesian case has the option cylinder_in_a_box, sphere_in_a_box
@@ -256,6 +256,28 @@ module Particles_sub
             elseif (lspherical_coords) then
               call fatal_error_local('boundconds_particles',&
                    'flush-keplerian not ready for spherical coords')
+            endif
+
+          elseif (bcpx=='flg') then
+!
+!  Flush-average - flush the particle to the outer boundary with velocity given
+!  by the average velocity of nearby particles (taken from a box)
+!
+            if (lcylindrical_coords) then
+              if ((fp(k,ixp)< rp_int).or.(fp(k,ixp)>= rp_ext)) then
+!   Flush to outer boundary
+                fp(k,ixp)  = rp_ext
+!   Random new azimuthal y position
+                call random_number_wrapper(fp(k,iyp))
+                fp(k,iyp)=xyz0_loc(2)+fp(k,iyp)*Lxyz_loc(2)
+!
+!   Average of other particles in outer boundary
+!
+                fp(k,ivpx:ivpz) = vavg
+              endif
+            else
+              call fatal_error("bounconds_particles",&
+                   "flg boundary coded only for cylindrical coordinates")
             endif
 !
           elseif (bcpx=='rmv') then
@@ -486,6 +508,43 @@ module Particles_sub
       endif
 !
     endsubroutine boundconds_particles
+!***********************************************************************
+    subroutine calc_velocity_averages(fp,k1,k2,ik,vavg)
+!    
+      real, dimension (mpar_loc,mparray) :: fp
+      real, dimension(3) :: vavg,vavg_count
+      integer :: k, ik, k1, k2
+      real :: rbox_ext,rbox_int,ncount1
+      integer :: j,ncount
+!
+      intent (in) :: fp,k1,k2,ik
+      intent (out) :: vavg
+!
+      rbox_ext   = rp_ext
+      rbox_int   = rp_ext - rp_ext_width
+      vavg_count = 0.
+      ncount     = 0
+!
+      do k=k1,k2,ik
+        if ((fp(k,ixp) >= rbox_int) .and. (fp(k,ixp) <= rbox_ext)) then
+          vavg_count(1) = vavg_count(1) + fp(k,ivpx)
+          vavg_count(2) = vavg_count(2) + fp(k,ivpy)
+          vavg_count(3) = vavg_count(3) + fp(k,ivpz)
+          ncount = ncount + 1
+        endif
+      enddo
+      if (ncount == 0) then
+        vavg(1) = 0.
+        vavg(2) = 1./sqrt(rbox_ext)
+        vavg(3) = 0.
+      else
+        ncount1=1./ncount
+        do j=1,3
+          vavg(j) = vavg_count(j)*ncount1
+        enddo
+      endif
+!
+    endsubroutine calc_velocity_averages
 !***********************************************************************
     subroutine sum_par_name(a,iname,lsqrt,llog10)
 !

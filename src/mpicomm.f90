@@ -448,6 +448,7 @@ module Mpicomm
       use Syscalls, only: sizeof_real
 !
       lmpicomm = .true.
+!
       call MPI_INIT(mpierr)
       call MPI_COMM_SIZE(MPI_COMM_WORLD, nprocs, mpierr)
       call MPI_COMM_RANK(MPI_COMM_WORLD, iproc, mpierr)
@@ -544,12 +545,12 @@ module Mpicomm
 !
       if (lyinyang) then
 
-        if (nprocy>5) then
-          print*, 'Processor layout with nprocz>15, nprocy>5 not implemented for Yin-Yang grid.'
+        if (nprocy>5.and..not.lcutoff_corners) then
+          if (lroot) print*, 'Processor layout with nprocz>15, nprocy>5 not implemented for Yin-Yang grid.'
           call stop_it('initialize_mpicomm')
         endif
         if (nprocz/=3*nprocy) then
-          print*, 'Processor layout with nprocz/=3*nprocy not implemented for Yin-Yang grid.'
+          if (lroot) print*, 'Processor layout with nprocz/=3*nprocy not implemented for Yin-Yang grid.'
           call stop_it('initialize_mpicomm')
         endif
 
@@ -1036,6 +1037,7 @@ if (.false.) then
 !if (.not.lyang.and.(lfirst_proc_y.or.llast_proc_y)) then
 if (lfirst_proc_y) print*, 'lower left'
 if (llast_proc_y) print*, 'lower right'
+!print*, 'iproc, zlneigh, llcorn, ulcorn=', iproc, zlneigh-27, llcorn-27, ulcorn-27
 print*, 'thphprime_strip_z'
 print'(2(f10.4,1x))', thphprime_strip_z
 print*, '-----------------'
@@ -1185,8 +1187,9 @@ if (.false.) then
 !if (.not.lyang.and.llast_proc_z) then
 !if (.not.lyang.and.lfirst_proc_z) then
 !if (.not.lyang.and.(lfirst_proc_z.or.llast_proc_z)) then
+print*, 'iproc, ylneigh, llcorn, lucorn=', iproc, ylneigh-27, llcorn-27, lucorn-27
 if (lfirst_proc_z) print*, 'left lower'
-if (llast_proc_z) print*, 'left upper: ylneigh, llcorn, lucorn=', ylneigh, llcorn, lucorn
+if (llast_proc_z) print*, 'left upper'   !: ylneigh, llcorn, lucorn=', ylneigh, llcorn, lucorn
 print*, 'thphprime_strip_y'
 print'(2(f10.4,1x))', thphprime_strip_y
 print*, '-----------------'
@@ -1246,7 +1249,7 @@ endif
               call yy_transform_strip(m2+1,my,nzcut+1,mz,thphprime_strip_y(:,:,nzcut+1:mz), &
                                       ith_shift_=-1)
             elseif (lfirst_proc_z) then
-              call yy_transform_strip(my-len_cornstrip_y+3-nghost,my-len_cornstrip_y+2,1, &
+              call yy_transform_strip(len_cornstrip_y-2,len_cornstrip_y,1, &
                                       mz-nzcut,thphprime_strip_y(:,:,:mz-nzcut),ith_shift_=1)
               call yy_transform_strip(m2+1,my,mz-nzcut+1,mz,thphprime_strip_y(:,:,mz-nzcut+1:mz))
             endif
@@ -1266,11 +1269,11 @@ if (.false.) then
 !if (.not.lyang.and.lfirst_proc_z) then
 !if (.not.lyang.and.(lfirst_proc_z.or.llast_proc_z)) then
 if (lfirst_proc_z) print*, 'right lower'
-if (llast_proc_z) print*, 'righft upper: yuneigh, ulcorn, uucorn=', yuneigh, ulcorn, uucorn
+if (llast_proc_z) print*, 'right upper'  !: yuneigh, ulcorn, uucorn=', yuneigh, ulcorn, uucorn
 !if (llast_proc_z) print*, 'right upper'
-!print*, 'thphprime_strip_y'
-!print'(2(f10.4,1x))', thphprime_strip_y
-!print*, '-----------------'
+print*, 'thphprime_strip_y'
+print'(2(f10.4,1x))', thphprime_strip_y
+print*, '-----------------'
 endif
 
           if (ipz>=nprocz/3.and.ipz<2*nprocz/3) then
@@ -1324,24 +1327,21 @@ endif
 
         call MPI_WAIT(irecv_rq_fromlowy,irecv_stat_fl,mpierr)
         nok=prep_interp(gridbuf_midz,intcoeffs(MIDZ),iyinyang_intpol_type,ngap); noks=noks+nok
-if (lyang.and.iproc==6) then
-  print*, 'fromlowy: iproc, nok=', iproc, nok, ngap
-  !write(33,'(2(1x,i4))') intcoeffs(MIDZ)%inds(:,:,1)
-endif
-if (lyang.and.iproc==9) print*, 'fromlowy: iproc, nok=', iproc, nok, ngap
 !  print*, 'proc ,',iproc_world,',  from ', ylneigh, size(gridbuf_midz,1), size(gridbuf_midz,2), size(gridbuf_midz,3)   
 !, size(intcoeffs(MIDZ)%inds,1), size(intcoeffs(MIDZ)%inds,2)
 !  print'(3(i3,1x))', intcoeffs(MIDZ)%inds(:,:,1)
 !if (iproc_world==6) print*, 'lowy: ', iproc_world, nok 
 !,maxval(abs(intcoeffs(MIDZ)%coeffs)),maxval(intcoeffs(MIDZ)%inds),minval(intcoeffs(MIDZ)%inds)
         call MPI_WAIT(isend_rq_tolowy,isend_stat_tl,mpierr)
+!if (lyang.and.iproc==15) print*, 'fromlowy: iproc, nok=', iproc, nok, ngap
+!if (lyang.and.iproc==18) print*, 'fromlowy: iproc, nok=', iproc, nok, ngap
+!if (lyang.and.iproc==6) print*, 'fromlowy: iproc, nok=', iproc, nok, ngap
+!if (lyang.and.iproc==9) print*, 'fromlowy: iproc, nok=', iproc, nok, ngap
         if (llcorn>=0) then
           call MPI_WAIT(irecv_rq_FRll,irecv_stat_Fll,mpierr)
           nok=prep_interp(gridbuf_left,intcoeffs(LEFT),iyinyang_intpol_type,ngap); noks=noks+nok
-if (lyang.and.iproc==6) print*, 'fromlowleft: iproc, nok=', iproc, nok, ngap
-if (lyang.and.iproc==9) print*, 'fromlowleft: iproc, nok=', iproc, nok, ngap
-if (lyang.and.iproc==3) print*, 'fromlowleft: iproc, nok=', iproc, nok, ngap
-if (lyang.and.iproc==12) print*, 'fromlowleft: iproc, nok=', iproc, nok, ngap
+!if (lyang.and.iproc==12) print*, 'fromuppleft: iproc, nok=', iproc, nok, ngap
+!if (lyang.and.iproc==3) print*, 'fromuppleft: iproc, nok=', iproc, nok, ngap
 !if (iproc_world==6) print*,'ll:', iproc_world,nok
 !,maxval(abs(intcoeffs(LEFT)%coeffs)),maxval(intcoeffs(LEFT)%inds),minval(intcoeffs(LEFT)%inds)
           call MPI_WAIT(isend_rq_TOll,isend_stat_Tll,mpierr)
@@ -1350,11 +1350,8 @@ if (lyang.and.iproc==12) print*, 'fromlowleft: iproc, nok=', iproc, nok, ngap
         if (lucorn>=0) then
           call MPI_WAIT(irecv_rq_FRlu,irecv_stat_Flu,mpierr)
           nok=prep_interp(gridbuf_right,intcoeffs(RIGHT),iyinyang_intpol_type,ngap); noks=noks+nok
-if (lyang.and.iproc==6) print*, 'fromuppleft: iproc, nok=', iproc, nok, ngap
-if (lyang.and.iproc==9) print*, 'fromuppleft: iproc, nok=', iproc, nok, ngap
-if (lyang.and.iproc==3) print*, 'fromuppleft: iproc, nok=', iproc, nok, ngap
-if (lyang.and.iproc==12) print*, 'fromuppleft: iproc, nok=', iproc, nok, ngap
-!if (iproc_world==6) print*,'lu:',iproc_world,nok
+!if (lyang.and.iproc==21) print*, 'fromlowleft: iproc, nok=', iproc, nok, ngap
+!if (lyang.and.iproc==12) print*, 'fromlowleft: iproc, nok=', iproc, nok, ngap
 !maxval(abs(intcoeffs(RIGHT)%coeffs)),maxval(intcoeffs(RIGHT)%inds),minval(intcoeffs(RIGHT)%inds)
           call MPI_WAIT(isend_rq_TOlu,isend_stat_Tlu,mpierr)
         endif
@@ -1368,10 +1365,16 @@ if (lyang.and.iproc==12) print*, 'fromuppleft: iproc, nok=', iproc, nok, ngap
 ! print*,'uppy:',iproc,iproc_world,nok,maxval(abs(intcoeffs(MIDZ)%coeffs)),maxval(intcoeffs(MIDZ)%inds), & 
 ! minval(intcoeffs(MIDZ)%inds)
         call MPI_WAIT(isend_rq_touppy,isend_stat_tu,mpierr)
+!if (lyang.and.iproc==17) print*, 'fromuppy: iproc, nok=', iproc, nok, ngap
+!if (lyang.and.iproc==20) print*, 'fromuppy: iproc, nok=', iproc, nok, ngap
+!if (lyang.and.iproc==11) print*, 'fromuppy: iproc, nok=', iproc, nok, ngap
+!if (lyang.and.iproc==8) print*, 'fromuppy: iproc, nok=', iproc, nok, ngap
 
         if (ulcorn>=0) then
           call MPI_WAIT(irecv_rq_FRul,irecv_stat_Ful,mpierr)
           nok=prep_interp(gridbuf_right,intcoeffs(RIGHT),iyinyang_intpol_type,ngap); noks=noks+nok
+!if (lyang.and.iproc==23) print*, 'fromlowright: iproc, nok=', iproc, nok, ngap
+!if (lyang.and.iproc==14) print*, 'fromlowright: iproc, nok=', iproc, nok, ngap
 ! print*,'ul:',iproc,iproc_world,nok,maxval(abs(intcoeffs(RIGHT)%coeffs)),maxval(intcoeffs(RIGHT)%inds), & 
 ! minval(intcoeffs(RIGHT)%inds)
           call MPI_WAIT(isend_rq_TOul,isend_stat_Tul,mpierr)
@@ -1380,6 +1383,8 @@ if (lyang.and.iproc==12) print*, 'fromuppleft: iproc, nok=', iproc, nok, ngap
         if (uucorn>=0) then
           call MPI_WAIT(irecv_rq_FRuu,irecv_stat_Fuu,mpierr)
           nok=prep_interp(gridbuf_left,intcoeffs(LEFT),iyinyang_intpol_type,ngap); noks=noks+nok
+!if (lyang.and.iproc==14) print*, 'fromuppright: iproc, nok=', iproc, nok, ngap
+!if (lyang.and.iproc==5) print*, 'fromuppright: iproc, nok=', iproc, nok, ngap
 ! print*,'uu:',iproc,iproc_world,nok,maxval(abs(intcoeffs(LEFT)%coeffs)),maxval(intcoeffs(LEFT)%inds), & 
 ! minval(intcoeffs(LEFT)%inds)
           call MPI_WAIT(isend_rq_TOuu,isend_stat_Tuu,mpierr)
@@ -1458,15 +1463,18 @@ if (lyang.and.iproc==12) print*, 'fromuppleft: iproc, nok=', iproc, nok, ngap
           nstrip_total=2*nghost*(nprocz*mz + nprocy*my - 2*nghost)
         endif
         noks_all=noks_all - ngap_all/4 
+
 print*, 'noks_all,ngap_all,nstrip_total=', noks_all,ngap_all,nstrip_total
-        if (noks_all<nstrip_total) then
+        if (noks_all/=nstrip_total) then
           msg='setup_interp_yy: '//trim(cyinyang)//' grid: number of caught points '// &
                trim(itoa(noks_all))//' smaller than goal '// trim(itoa(nstrip_total)) &
-               //'. Reduce dang in start.f90'
+               //'. Reduce dang in start.f90.'
+          if (lcutoff_corners) msg=trim(msg)//' Or increase nycut and nzcut.'
           stop_flag=.true.
         endif
       endif
       call stop_it_if_any(stop_flag,msg)
+!call  mpibarrier
 !call  mpifinalize
 !stop
     endsubroutine setup_interp_yy
@@ -1483,7 +1491,7 @@ print*, 'noks_all,ngap_all,nstrip_total=', noks_all,ngap_all,nstrip_total
 !                  added yz corner communication
 !  20-dec-15/MR: modified for Yin-Yang grid
 !
-      use General, only: transpose_mn, notanumber
+      use General, only: notanumber
 
       real, dimension(:,:,:,:), intent(inout):: f
       integer, optional,        intent(in)   :: ivar1_opt, ivar2_opt
@@ -3694,6 +3702,7 @@ if (notanumber(f(:,:,:,j))) print*, 'lucorn: iproc,j=', iproc, iproc_world, j
 !  25-feb-08/wlad: adapted
 !
       use General, only: ioptest
+!
       integer, dimension(2) :: nbcast_array
       real, dimension(nbcast_array(1),nbcast_array(2)) :: bcast_array
       integer, optional :: proc,comm
@@ -4033,6 +4042,20 @@ if (notanumber(f(:,:,:,j))) print*, 'lucorn: iproc,j=', iproc, iproc_world, j
                          mpiprocs, mpierr)
 !
     endsubroutine mpiallreduce_sum_arr5
+!***********************************************************************
+    subroutine mpiscan_int(num,offset,comm)
+!
+!  Calculate for each processor offset of local array within a global array.
+!
+      use General, only: ioptest
+
+      integer :: num,offset
+      integer, optional :: comm
+!
+      call MPI_SCAN(num, offset, 1, MPI_INTEGER, MPI_SUM, &
+                         ioptest(comm,MPI_COMM_GRID), mpierr)
+!
+    endsubroutine mpiscan_int
 !***********************************************************************
     subroutine mpiallreduce_sum_int_scl(fsum_tmp,fsum,comm)
 !
@@ -4680,7 +4703,8 @@ if (notanumber(f(:,:,:,j))) print*, 'lucorn: iproc,j=', iproc, iproc_world, j
       double precision :: mpiwtime
       double precision :: MPI_WTIME   ! definition needed for mpicomm_ to work
 !
-      mpiwtime = MPI_WTIME()
+      !mpiwtime = MPI_WTIME()
+      mpiwtime = 0
       !print*, 'MPI_WTIME=', MPI_WTIME()
 !
     endfunction mpiwtime
@@ -4690,7 +4714,8 @@ if (notanumber(f(:,:,:,j))) print*, 'lucorn: iproc,j=', iproc, iproc_world, j
       double precision :: mpiwtick
       double precision :: MPI_WTICK   ! definition needed for mpicomm_ to work
 !
-      mpiwtick = MPI_WTICK()
+      !mpiwtick = MPI_WTICK()
+      mpiwtick = 0
 !
     endfunction mpiwtick
 !***********************************************************************
@@ -4775,7 +4800,7 @@ if (notanumber(f(:,:,:,j))) print*, 'lucorn: iproc,j=', iproc, iproc_world, j
 !  6-nov-01/wolf: coded
 !  4-nov-11/MR: optional parameter code added
 !
-      use general, only: itoa
+      use General, only: itoa
 !
       character (len=*) :: msg
       integer, optional :: code
@@ -5861,16 +5886,15 @@ if (notanumber(f(:,:,:,j))) print*, 'lucorn: iproc,j=', iproc, iproc_world, j
         do px = 0, nprocx-1
           do py = 0, nprocy-1
             partner = px + py*nprocx + ipz*nprocxy
-            if (iproc == partner) then
-              ! data is local
-              out = in(px*bnx+1:(px+1)*bnx,py*bny+1:(py+1)*bny)
-            else
+            if (iproc /= partner) then
               ! send to partner
-              call MPI_SEND (in(px*bnx+1:(px+1)*bnx,py*bny+1:(py+1)*bny), &
-                  nbox, MPI_REAL, partner, ytag, MPI_COMM_GRID, mpierr)
+              out = in(px*bnx+1:(px+1)*bnx,py*bny+1:(py+1)*bny)
+              call MPI_SEND (out, nbox, MPI_REAL, partner, ytag, MPI_COMM_GRID, mpierr)
             endif
           enddo
         enddo
+        ! copy local data
+        out = in(ipx*bnx+1:(ipx+1)*bnx,ipy*bny+1:(ipy+1)*bny)
       else
         ! receive from broadcaster
         call MPI_RECV (out, nbox, MPI_REAL, broadcaster, ytag, MPI_COMM_GRID, stat, mpierr)

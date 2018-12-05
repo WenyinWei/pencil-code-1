@@ -138,6 +138,20 @@ module File_io
 !
     endsubroutine delete_file
 !****************************************************************************
+    subroutine file_remove(file)
+!
+!  Removes a file if it exists.
+!
+!  05-Nov-2018/PABourdin: coded
+!
+      character(len=*), intent(in) :: file
+!
+      logical :: removed
+!
+      removed = file_exists(file, delete=.true.)
+!
+    endsubroutine file_remove
+!***********************************************************************
     function file_exists(file, delete)
 !
 !  Determines if a file exists.
@@ -152,15 +166,15 @@ module File_io
       use General, only: loptest
 !
       logical :: file_exists
-      character(len=*) :: file
-      logical, optional :: delete
+      character(len=*), intent(in) :: file
+      logical, optional, intent(in) :: delete
 !
       integer, parameter :: unit = 1
 !
       inquire (file=file, exist=file_exists)
 !
       if (file_exists .and. loptest(delete)) then
-        if (ip <= 6) print *, 'remove_file: Removing file <'//trim(file)//'>'
+        if (ip <= 6) print *, 'file_exists: Removing file <'//trim(file)//'>'
         open (unit, file=file)
         close (unit, status='delete')
       endif
@@ -179,7 +193,7 @@ module File_io
 !  23-may-2015/PABourdin: coded
 !
       integer :: file_size
-      character (len=*) :: file
+      character (len=*), intent(in) :: file
 !
       file_size = -2
       if (file_exists(file)) then

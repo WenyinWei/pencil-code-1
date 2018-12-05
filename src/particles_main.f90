@@ -77,6 +77,7 @@ module Particles_main
 !
 !  Print summary of variable names.
 !
+      ! [PAB]: We now have a "particle_index.pro"; can we remove the "pvarname.dat" file?
       if (lroot) then
         open(3,file=trim(datadir)//'/pvarname.dat',status='replace')
         do ipvar=1,mparray
@@ -95,8 +96,6 @@ module Particles_main
 !
       logical :: lreset
 !
-      if (lroot) open(3, file=trim(datadir)//'/index.pro', &
-          STATUS='old', POSITION='append')
       call rprint_particles              (lreset,LWRITE=lroot)
       call rprint_particles_radius       (lreset,LWRITE=lroot)
       call rprint_particles_grad         (lreset,LWRITE=lroot)
@@ -116,7 +115,6 @@ module Particles_main
       call rprint_particles_collisions   (lreset,LWRITE=lroot)
       call rprint_particles_diagnos_dv   (lreset,LWRITE=lroot)
       call rprint_particles_diagnos_state(lreset,LWRITE=lroot)
-      if (lroot) close(3)
 !
 !  check for those quantities for which we want video slices
 !
@@ -291,7 +289,7 @@ module Particles_main
 !
       character (len=*) :: snap_directory
 !
-      call particles_read_snapshot(trim(snap_directory)//'/pvar.dat')
+      call particles_read_snapshot('pvar.dat')
       if (lparticles_lyapunov)      call init_particles_lyapunov(fp)
       if (lparticles_caustics)      call reinitialize_caustics(fp)
 !
@@ -369,26 +367,22 @@ module Particles_main
 !
     endsubroutine particles_read_snapshot
 !***********************************************************************
-    subroutine write_snapshot_particles(snap_directory,f,enum,snapnum)
+    subroutine write_snapshot_particles(f,enum,snapnum)
 !
       use General, only: itoa
 !
-      character (len=*) :: snap_directory
       real, dimension (mx,my,mz,mfarray) :: f
       logical :: enum
       integer, optional :: snapnum
 !
       if (present(snapnum)) then
-        call particles_write_snapshot(trim(snap_directory)//'/PVAR'//itoa(snapnum),f, &
-            enum=.false.,FLIST='pvarN.list')
+        call particles_write_snapshot('PVAR'//itoa(snapnum),f,enum=.false.,FLIST='pvarN.list')
 !
       elseif (enum) then
-        call particles_write_snapshot(trim(snap_directory)//'/PVAR',f, &
-            ENUM=.true.,FLIST='pvarN.list')
+        call particles_write_snapshot('PVAR',f,ENUM=.true.,FLIST='pvarN.list')
 !
       else
-        call particles_write_snapshot( &
-            trim(snap_directory)//'/pvar.dat',f,enum=.false.)
+        call particles_write_snapshot('pvar.dat',f,enum=.false.)
 !
       endif
 !
@@ -1357,16 +1351,15 @@ module Particles_main
 
     endsubroutine fetch_nparloc
 !***********************************************************************
-    subroutine fetch_npvar(npvar_aux)
-      integer, intent(out) :: npvar_aux
-      npvar_aux=npvar
-    endsubroutine fetch_npvar
-!***********************************************************************
-    subroutine return_npvar(npvar_aux)
-      integer, intent(in) :: npvar_aux
-      npvar=npvar_aux
-    endsubroutine return_npvar
-!***********************************************************************
+    subroutine append_particle_index(label,ilabel)
+!
+      character (len=*), intent(in) :: label
+      integer, intent(out) :: ilabel
+!
+      call append_npvar(label,ilabel)
+!
+    endsubroutine append_particle_index
+!*********************************************************************** 
     subroutine fetch_fp_array(fp_aux,dfp_aux,ixw,iyw,izw,ivxw,ivyw,ivzw)
 !
       real,    dimension(mpar_loc,mparray), intent(out) :: fp_aux

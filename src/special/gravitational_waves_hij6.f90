@@ -89,7 +89,9 @@ module Special
   character (len=labellen) :: inithij='nothing'
   character (len=labellen) :: initgij='nothing'
   character (len=labellen) :: ctrace_factor='1/3'
-  character (len=labellen) :: cstress_prefactor='16pi'
+  !character (len=labellen) :: cstress_prefactor='16pi'
+  !AB: changed on Oct 25
+  character (len=labellen) :: cstress_prefactor='6'
   character (len=labellen) :: fourthird_in_stress='4/3'
   character (len=labellen) :: cc_light='1'
   character (len=labellen) :: aux_stress='stress'
@@ -251,9 +253,12 @@ module Special
 !
 !  determine stress_prefactor and GW energy prefactor,
 !  which is EGWpref=.5*16.*pi/stress_prefactor**2
+!  At the moment, only the case stress_prefactor=6 is to be used.
+!  The other cases are kept for backward compatibility.
 !
       select case (cstress_prefactor)
         case ('1'); stress_prefactor=1.; EGWpref=8.*pi
+        case ('6'); stress_prefactor=6.; EGWpref=1./(32.*pi)
         case ('16pi'); stress_prefactor=16.*pi; EGWpref=1./(32.*pi)
         case ('16piG/c^2'); stress_prefactor=16.*pi*G_Newton_cgs/c_light_cgs**2;
           EGWpref=c_light_cgs**2/(32.*pi*G_Newton_cgs)
@@ -1051,6 +1056,7 @@ module Special
 !  06-oct-03/tony: coded
 !
       use Diagnostics
+!!      use FArrayManager, only: farray_index_append
 !
       integer :: iname
       logical :: lreset,lwr
@@ -1121,7 +1127,7 @@ module Special
 !
 !!!  write column where which magnetic variable is stored
 !!      if (lwr) then
-!!        write(3,*) 'i_SPECIAL_DIAGNOSTIC=',i_SPECIAL_DIAGNOSTIC
+!!        call farray_index_append('i_SPECIAL_DIAGNOSTIC',i_SPECIAL_DIAGNOSTIC)
 !!      endif
 !!
     endsubroutine rprint_special

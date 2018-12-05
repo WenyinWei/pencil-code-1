@@ -21,6 +21,7 @@ module Particles_cdata
   integer(KIND=ikind8), parameter :: npar_maxp=npar*maxp
   integer, parameter :: max_par_per_grid=int(npar_maxp/nwgrid)+1  ! ceiling needed?
   real :: rp_int=-impossible, rp_ext=-impossible
+  real :: rp_ext_width=-impossible
   real :: dsnap_par_minor=0.0, dsnap_par=0.0
   real :: rhopmat=1.0, rhopmat1=1.0, mpmat=0.0
   real :: eps_dtog = 0.01
@@ -105,8 +106,8 @@ module Particles_cdata
   logical :: lnocollapse_zdir_onecell=.false.
 !
   character (len=2*bclen+1) :: bcpx='p', bcpy='p', bcpz='p'
-  character (len=10), dimension(mparray) :: pvarname
-  character(len=labellen) :: particle_mesh = ''
+  character (len=labellen), dimension(mparray) :: pvarname
+  character (len=labellen) :: particle_mesh = ''
   character (len=labellen) :: remove_particle_criteria='all'
 !
   type quant_interp_penc

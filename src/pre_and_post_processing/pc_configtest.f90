@@ -1,7 +1,7 @@
 ! This is a tool to check the correctness on the start.in and run.in file.
 !
 ! $Id$
-!****************************************************************************
+!
 program pc_configtest
 !
   use Cdata

@@ -582,7 +582,7 @@ module Magnetic
 !
       curle: if (lpenc_loc(i_curle)) then
         call gij(f, iee, eij, 1)
-        call curl_mn(eij, p%curle, f(l1:l2,m,n,ieex:ieez))
+        call curl_mn(eij, p%curle, f(:,m,n,ieex:ieez))
       endif curle
 !
       if (lpenc_loc(i_beta)) p%beta = 2.0 * mu0 * p%pp / max(p%b2, tiny(1.0))
@@ -595,7 +595,7 @@ module Magnetic
 !
       if (lpenc_loc(i_ss12)) call fatal_error('calc_pencils_magnetic', 'pencil ss12 is not implemented. ')
 !
-    endsubroutine calc_pencils_magnetic
+    endsubroutine calc_pencils_magnetic_pencpar
 !***********************************************************************
     subroutine daa_dt(f, df, p)
 !
@@ -728,6 +728,7 @@ module Magnetic
 !  25-jun-13/ccyang: coded.
 !
       use Diagnostics, only: parse_name
+      use FArrayManager, only: farray_index_append
 !
       logical, intent(in) :: lreset
       logical, intent(in), optional :: lwrite
@@ -922,18 +923,18 @@ module Magnetic
 !
       option: if (present(lwrite)) then
         indices: if (lwrite) then
-          write(3,*) 'ibb = ', ibb
-          write(3,*) 'ibx = ', ibx
-          write(3,*) 'iby = ', iby
-          write(3,*) 'ibz = ', ibz
-          write(3,*) 'iEE = ', iEE
-          write(3,*) 'iEEx = ', iEEx
-          write(3,*) 'iEEy = ', iEEy
-          write(3,*) 'iEEz = ', iEEz
-          write(3,*) 'ijj = ', ijj
-          write(3,*) 'ijx = ', ijx
-          write(3,*) 'ijy = ', ijy
-          write(3,*) 'ijz = ', ijz
+          call farray_index_append('ibb',ibb)
+          call farray_index_append('ibx',ibx)
+          call farray_index_append('iby',iby)
+          call farray_index_append('ibz',ibz)
+          call farray_index_append('iEE',iEE)
+          call farray_index_append('iEEx',iEEx)
+          call farray_index_append('iEEy',iEEy)
+          call farray_index_append('iEEz',iEEz)
+          call farray_index_append('ijj',ijj)
+          call farray_index_append('ijx',ijx)
+          call farray_index_append('ijy',ijy)
+          call farray_index_append('ijz',ijz)
         endif indices
       endif option
 !

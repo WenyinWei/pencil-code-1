@@ -274,7 +274,7 @@ module Boundcond
                   call bc_sf_x(f,+1,topbot,j)
                 case ('ss')
                   ! BCX_DOC: symmetry, plus function value given
-                  call bc_symset_x(f,+1,topbot,j)
+                  call bc_symset_x(f,+1,topbot,j,val=fbcx(:,k))
                 case ('sds')
                   ! BCY_DOC: symmetric-derivative-set
                   call bc_symderset_x(f,topbot,j,val=fbcx(:,k))
@@ -617,7 +617,7 @@ module Boundcond
                 call bc_sym_y(f,+1,topbot,j)
               case ('ss')
                 ! BCY_DOC: symmetry, plus function value given
-                call bc_symset_y(f,+1,topbot,j)
+                call bc_symset_y(f,+1,topbot,j,val=fbcy(:,k))
               case ('sds')
                 ! BCY_DOC: symmetric-derivative-set
                 call bc_symderset_y(f,topbot,j,val=fbcy(:,k))
@@ -959,7 +959,7 @@ module Boundcond
                   'hs boundary condition requires a constant gravity profile')
                 if (.not. lequidist(3)) call fatal_error('boundconds_z', &
                   'hs boundary condition requires symmetric grid distances on the z boundary')
-                if ((j==ilnrho) .or. (j==irho_b)) then
+                if ((j==ilnrho) .or. (j==irho_b) .or. (j==iss)) then
                   call bc_lnrho_hds_z_iso(f,topbot)
                 elseif (j==ipp) then
                   call bc_pp_hds_z_iso(f,topbot)
@@ -1848,7 +1848,7 @@ module Boundcond
           do i=1,nghost; f(l1-i,:,:,j)=2*f(l1,:,:,j)+sgn*f(l1+i,:,:,j); enddo
         else
           do i=1,nghost; f(l1-i,:,:,j)=              sgn*f(l1+i,:,:,j); enddo
-          f(l1,:,:,j)=(4.*f(l1+1,:,:,j)-f(l1+2,:,:,j))/3.
+          !f(l1,:,:,j)=(4.*f(l1+1,:,:,j)-f(l1+2,:,:,j))/3.
         endif
 !
       case ('top')               ! top boundary
@@ -1857,7 +1857,7 @@ module Boundcond
           do i=1,nghost; f(l2+i,:,:,j)=2*f(l2,:,:,j)+sgn*f(l2-i,:,:,j); enddo
         else
           do i=1,nghost; f(l2+i,:,:,j)=              sgn*f(l2-i,:,:,j); enddo
-          f(l2,:,:,j)=(4.*f(l2-1,:,:,j)-f(l2-2,:,:,j))/3.
+          !f(l2,:,:,j)=(4.*f(l2-1,:,:,j)-f(l2-2,:,:,j))/3.
         endif
 !
       case default
@@ -2472,7 +2472,7 @@ module Boundcond
           do i=1,nghost; f(:,m1-i,:,j)=2*f(:,m1,:,j)+sgn*f(:,m1+i,:,j); enddo
         else
           do i=1,nghost; f(:,m1-i,:,j)=              sgn*f(:,m1+i,:,j); enddo
-          f(:,m1,:,j)=(4.*f(:,m1+1,:,j)-f(:,m1+2,:,j))/3.
+          !f(:,m1,:,j)=(4.*f(:,m1+1,:,j)-f(:,m1+2,:,j))/3.
         endif
 !
       case ('top')               ! top boundary
@@ -2481,7 +2481,7 @@ module Boundcond
           do i=1,nghost; f(:,m2+i,:,j)=2*f(:,m2,:,j)+sgn*f(:,m2-i,:,j); enddo
         else
           do i=1,nghost; f(:,m2+i,:,j)=              sgn*f(:,m2-i,:,j); enddo
-          f(:,m2,:,j)=(4.*f(:,m2-1,:,j)-f(:,m2-2,:,j))/3.
+          !f(:,m2,:,j)=(4.*f(:,m2-1,:,j)-f(:,m2-2,:,j))/3.
         endif
 !
       case default
@@ -6994,9 +6994,9 @@ module Boundcond
       character (len=bclen) :: topbot
       real, dimension (:,:,:,:) :: f
       real :: value
-      integer :: j,l,n
+      integer :: j
 !
-      integer :: i
+      integer :: i,l
 !
       select case (topbot)
 !

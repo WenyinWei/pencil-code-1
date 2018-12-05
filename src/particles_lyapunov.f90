@@ -52,37 +52,21 @@ module Particles_lyapunov
 !
 !  Indices for velocity gradient matrix (Wij) at particle positions
 !
-      iup11=npvar+1
-      pvarname(npvar+1)='iup11'
-      iup12=npvar+2
-      pvarname(npvar+2)='iup12'
-      iup13=npvar+3
-      pvarname(npvar+3)='iup13'
-      iup21=npvar+4
-      pvarname(npvar+4)='iup21'
-      iup22=npvar+5
-      pvarname(npvar+5)='iup22'
-      iup23=npvar+6
-      pvarname(npvar+6)='iup23'
-      iup31=npvar+7
-      pvarname(npvar+7)='iup31'
-      iup32=npvar+8
-      pvarname(npvar+8)='iup32'
-      iup33=npvar+9
-      pvarname(npvar+9)='iup33'
+      call append_npvar('iup11',iup11)
+      call append_npvar('iup12',iup12)
+      call append_npvar('iup13',iup13)
+      call append_npvar('iup21',iup21)
+      call append_npvar('iup22',iup22)
+      call append_npvar('iup23',iup23)
+      call append_npvar('iup31',iup31)
+      call append_npvar('iup32',iup32)
+      call append_npvar('iup33',iup33)
 !
 !  Indices for a passive vector at particle positions
 !
-      ibpx=npvar+10
-      pvarname(npvar+10)='ibpx'
-      ibpy=npvar+11
-      pvarname(npvar+11)='ibpy'
-      ibpz=npvar+12
-      pvarname(npvar+12)='ibpz'
-!
-!  Increase npvar accordingly.
-!
-      npvar=npvar+12
+      call append_npvar('ibpx',ibpx)
+      call append_npvar('ibpy',ibpy)
+      call append_npvar('ibpz',ibpz)
 !
 !  Set indices for velocity gradient matrix at grid points
 !
@@ -90,13 +74,6 @@ module Particles_lyapunov
       igu11=iguij; igu12=iguij+1; igu13=iguij+2
       igu21=iguij+3; igu22=iguij+4; igu23=iguij+5
       igu31=iguij+6; igu32=iguij+7; igu33=iguij+8
-!
-!  Check that the fp and dfp arrays are big enough.
-!
-      if (npvar > mpvar) then
-        if (lroot) write(0,*) 'npvar = ', npvar, ', mpvar = ', mpvar
-        call fatal_error('register_particles','npvar > mpvar')
-      endif
 !
     endsubroutine register_particles_lyapunov
 !***********************************************************************
@@ -303,6 +280,7 @@ module Particles_lyapunov
 !  may-2016/dhruba+akshay: coded
 !
       use Diagnostics
+      use FArrayManager, only: farray_index_append
       use General,   only: itoa
 !
       logical :: lreset
@@ -319,18 +297,18 @@ module Particles_lyapunov
       if (present(lwrite)) lwr=lwrite
 !
       if (lwr) then
-        write(3,*) 'iup11=',iup11
-        write(3,*) 'iup12=',iup12
-        write(3,*) 'iup13=',iup13
-        write(3,*) 'iup21=',iup21
-        write(3,*) 'iup22=',iup22
-        write(3,*) 'iup23=',iup23
-        write(3,*) 'iup31=',iup31
-        write(3,*) 'iup32=',iup32
-        write(3,*) 'iup33=',iup33
-        write(3,*) 'ibpx=', ibpx
-        write(3,*) 'ibpy=', ibpy
-        write(3,*) 'ibpz=', ibpz
+        call farray_index_append('iup11',iup11)
+        call farray_index_append('iup12',iup12)
+        call farray_index_append('iup13',iup13)
+        call farray_index_append('iup21',iup21)
+        call farray_index_append('iup22',iup22)
+        call farray_index_append('iup23',iup23)
+        call farray_index_append('iup31',iup31)
+        call farray_index_append('iup32',iup32)
+        call farray_index_append('iup33',iup33)
+        call farray_index_append('ibpx', ibpx)
+        call farray_index_append('ibpy', ibpy)
+        call farray_index_append('ibpz', ibpz)
       endif
 !
 !  Reset everything in case of reset.

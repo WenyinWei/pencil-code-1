@@ -118,10 +118,8 @@ module Particles_adsorbed
 !  Indices of adsorbed species mole fraction
 !
       if (N_adsorbed_species > 1) then
-        iads = npvar+1
-!
         do i = 1,N_adsorbed_species
-          pvarname(iads+i-1) = 'i'//adsorbed_species_names(i)
+          call append_npvar('i'//adsorbed_species_names(i),iads)
         enddo
 !
         call get_shared_variable('total_carbon_sites',total_carbon_sites,ierr)
@@ -130,15 +128,7 @@ module Particles_adsorbed
 !  The -1 is there to account for Cf being in adsorbed_species_names
 !  but not in the calculation
 !
-        npvar = npvar+N_adsorbed_species
-        iads_end = iads+N_adsorbed_species-1
-      endif
-!
-!  Check that the fp and dfp arrays are big enough.
-!
-      if (npvar > mpvar) then
-        if (lroot) write (0,*) 'npvar = ', npvar, ', mpvar = ', mpvar
-        call fatal_error('register_ads','npvar > mpvar')
+        iads_end = iads-1
       endif
 !
 !  Allocate only if adsorbed species in mechanism
@@ -424,6 +414,7 @@ module Particles_adsorbed
 !  06-oct-14/jonas: adapted
 !
       use Diagnostics
+!     use FArrayManager, only: farray_index_append
 !
       logical :: lreset
       logical, optional :: lwrite
@@ -436,7 +427,7 @@ module Particles_adsorbed
 !
       lwr = .false.
       if (present(lwrite)) lwr = lwrite
-!     if (lwr) write (3,*) 'iads=', iads
+!     if (lwr) call farray_index_append('iads', iads)
 !
       if (lreset) then
         idiag_ads = 0

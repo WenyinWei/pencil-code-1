@@ -1,7 +1,7 @@
 ! This is a tool to collect a distributed data cube in one file.
 !
 ! $Id$
-!***********************************************************************
+!
 program pc_collect
 !
   use Cdata

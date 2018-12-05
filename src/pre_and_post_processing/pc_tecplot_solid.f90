@@ -5,7 +5,7 @@
 ! This file is based on the pc_collect.f90 writen by .
 !
 ! $Id: pc_tecplot.f90 10000 2014-04-17 22:12:50Z Zhuang $
-!***********************************************************************
+!
 program pc_tecplot_solid
 !
   use Cdata

@@ -115,7 +115,12 @@ module Energy
 !
       integer :: ierr
 !
-      call farray_register_pde('lnTT',ilnTT)
+      if (ltemperature_nolog) then
+        call farray_register_pde('TT',iTT)
+        ilnTT=iTT
+      else
+        call farray_register_pde('lnTT',ilnTT)
+      endif
 !
       call get_shared_variable('lpressuregradient_gas',lpressuregradient_gas,ierr)
       if (ierr/=0) call fatal_error('register_energy','lpressuregradient_gas')
@@ -154,7 +159,7 @@ module Energy
 !
 !  Set iTT requal to ilnTT if we are considering non-logarithmic temperature.
 !
-      if (ltemperature_nolog) iTT=ilnTT
+!      if (ltemperature_nolog) iTT=ilnTT
 !
       if (ltemperature_nolog) then
         call select_eos_variable('TT',iTT)
@@ -192,10 +197,11 @@ module Energy
       call put_shared_variable('lviscosity_heat',lviscosity_heat,ierr)
       if (ierr/=0) call stop_it("initialize_energy: "//&
            "there was a problem when putting lviscosity_heat")
-!
-!  Set iTT equal to ilnTT if we are considering non-logarithmic temperature.
-!
-      if (ltemperature_nolog) iTT=ilnTT
+      if (lsolid_cells) then
+        call put_shared_variable('ladvection_temperature',ladvection_temperature)
+        call put_shared_variable('lheatc_chiconst',lheatc_chiconst)
+        call put_shared_variable('lupw_lnTT',lupw_lnTT)
+      endif
 !
       do i=1,nheatc_max
         select case (iheatcond(i))
@@ -863,6 +869,7 @@ module Energy
 !   1-jun-02/axel: adapted from magnetic fields
 !
       use Diagnostics, only: parse_name
+      use FArrayManager, only: farray_index_append
 !
       integer :: iname, inamez
       logical :: lreset,lwr
@@ -932,14 +939,12 @@ module Energy
 !
       if (lwr) then
         if (ltemperature_nolog) then
-          write(3,*) 'ilnTT=0'
-          write(3,*) 'iTT=', iTT
+          call farray_index_append('ilnTT', 0)
         else
-          write(3,*) 'ilnTT=', ilnTT
-          write(3,*) 'iTT=0'
+          call farray_index_append('iTT', 0)
         endif
-        write(3,*) 'iyH=',iyH
-        write(3,*) 'iss=',iss
+        call farray_index_append('iyH', iyH)
+        call farray_index_append('iss', iss)
       endif
 !
     endsubroutine rprint_energy

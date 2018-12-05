@@ -193,6 +193,7 @@ module Hydro
   logical :: lremove_mean_momenta=.false.
   logical :: lremove_mean_flow=.false.
   logical :: lremove_uumeanxy=.false.
+  logical :: lremove_uumeanz=.false.
   logical :: lreinitialize_uu=.false.
   logical :: lalways_use_gij_etc=.false.
   logical :: lcalc_uumeanz=.false.,lcalc_uumeanxy=.false.,lcalc_uumean
@@ -228,14 +229,14 @@ module Hydro
       inituu, ampluu, kz_uu, ampl1_diffrot, ampl2_diffrot, uuprof, &
       xexp_diffrot, kx_diffrot, kz_diffrot, kz_analysis, phase_diffrot, ampl_wind, &
       lreinitialize_uu, lremove_mean_momenta, lremove_mean_flow, &
-      lremove_uumeanxy, &
+      lremove_uumeanxy,lremove_uumeanz, &
       ldamp_fade, tfade_start, lOmega_int, Omega_int, lupw_uu, othresh, &
       othresh_per_orms, borderuu, lfreeze_uint, lpressuregradient_gas, &
       lfreeze_uext, lcoriolis_force, lcentrifugal_force, ladvection_velocity, &
       utop, ubot, omega_out, omega_in, lprecession, omega_precession, &
       alpha_precession, lshear_rateofstrain, r_omega, w_omega, &
       lalways_use_gij_etc, amp_centforce, &
-      lcalc_uumean,lcalc_uumeanx,lcalc_uumeanxy,lcalc_uumeanxz, &
+      lcalc_uumean,lcalc_uumeanx,lcalc_uumeanxy,lcalc_uumeanxz,lcalc_uumeanz, &
       lforcing_cont_uu, width_ff_uu, x1_ff_uu, x2_ff_uu, &
       loo_as_aux, luut_as_aux, loot_as_aux, loutest, ldiffrot_test, &
       interior_bc_hydro_profile, lhydro_bc_interior, z1_interior_bc_hydro, &
@@ -760,7 +761,7 @@ module Hydro
 !
       real, dimension (mx,my,mz,mfarray) :: f
       real, dimension (mz) :: c, s
-      integer :: j,myl,nycap
+      integer :: j,myl ! currently unused: nycap
 !
 ! set the right point in profile to unity.
 !
@@ -1275,6 +1276,7 @@ module Hydro
       real :: a2, rr2, wall_smoothing
       real :: dis, xold,yold,uprof, factx, factz, sph, sph_har_der, der
       integer :: j,i,l,ixy,ix,iy,iz,iz0,iyz
+      logical :: lvectorpotential=.false.
 !
 !  inituu corresponds to different initializations of uu (called from start).
 !
@@ -1749,7 +1751,7 @@ module Hydro
         case ('power_randomphase_hel')
           call power_randomphase_hel(ampluu(j),initpower,initpower2, &
             cutoff,ncutoff,kpeak,f,iux,iuz,relhel_uu,kgaussian_uu, &
-            lskip_projection, lno_second_ampl, .false.)
+            lskip_projection, lno_second_ampl,lvectorpotential,lscale_tobox)
 !
         case ('random-isotropic-KS')
           call random_isotropic_KS(initpower,f,iux,N_modes_uu)
@@ -2362,7 +2364,8 @@ module Hydro
       type (pencil_case) :: p
       logical, dimension(npencils) :: lpenc_loc
 !
-      real, dimension (nx) :: tmp, tmp2
+      real, dimension (nx) :: tmp
+      real, dimension (nx,3) :: tmp3
       integer :: i, j, ju, ij, jj, kk, jk
 !
       intent(in) :: lpenc_loc
@@ -2471,12 +2474,9 @@ module Hydro
       if (lpenc_loc(i_del4graddivu)) call del4graddiv(f,iuu,p%del4graddivu)
 ! del6u_bulk
       if (lpenc_loc(i_del6u_bulk)) then
-        call der6(f,iux,tmp,1)
-        p%del6u_bulk(:,1)=tmp
-        call der6(f,iuy,tmp,2)
-        p%del6u_bulk(:,2)=tmp
-        call der6(f,iuz,tmp,3)
-        p%del6u_bulk(:,3)=tmp
+        call der6(f,iux,p%del6u_bulk(:,1),1)
+        call der6(f,iuy,p%del6u_bulk(:,2),2)
+        call der6(f,iuz,p%del6u_bulk(:,3),3)
       endif
 !
 ! del2u, graddivu
@@ -2529,13 +2529,12 @@ module Hydro
 !
       if (lpenc_loc(i_grad5divu)) then
         do i=1,3
-          tmp=0.0
+          p%grad5divu(:,i) = 0.0
           do j=1,3
             ju=iuu+j-1
-            call der5i1j(f,ju,tmp2,i,j)
-            tmp=tmp+tmp2
+            call der5i1j(f,ju,tmp,i,j)
+            p%grad5divu(:,i) = p%grad5divu(:,i) + tmp
           enddo
-          p%grad5divu(:,i)=tmp
         enddo
       endif
 ! transpurho
@@ -2570,7 +2569,8 @@ module Hydro
         do j=1,3
           ! This is calling scalar h_dot_grad, that does not add
           ! the inertial terms. They will be added here.
-          call h_dot_grad(p%uu_advec,p%uij(:,j,:),p%uuadvec_guu(:,j))
+          tmp3 = p%uij(:,j,:)
+          call h_dot_grad(p%uu_advec,tmp3,p%uuadvec_guu(:,j))
         enddo
         if (lcylindrical_coords) then
           p%uuadvec_guu(:,1)=p%uuadvec_guu(:,1)-rcyl_mn1*p%uu(:,2)*p%uu(:,2)
@@ -3861,6 +3861,15 @@ module Hydro
         enddo
       endif
 !
+!  Remove mean flow (xy average).
+!
+        if (lremove_uumeanz) then
+          do j=1,3
+            do n=1,mz
+              f(:,:,n,iuu+j-1) = f(:,:,n,iuu+j-1)-uumz(n,j)
+            enddo
+          enddo
+        endif
 !
     endsubroutine hydro_after_boundary
 !***********************************************************************
@@ -4547,6 +4556,7 @@ module Hydro
 !  27-may-02/axel: added possibility to reset list
 !
       use Diagnostics, only: parse_name
+      use FArrayManager, only: farray_index_append
       use General, only: itoa
 !
       integer :: k
@@ -5319,11 +5329,7 @@ module Hydro
 !  write column where which hydro variable is stored
 !
       if (lwr) then
-        write(3,*) 'iuu=',iuu
-        write(3,*) 'iux=',iux
-        write(3,*) 'iuy=',iuy
-        write(3,*) 'iuz=',iuz
-        if (lhelmholtz_decomp) write(3,*) 'iphiuu=',iphiuu
+        if (lhelmholtz_decomp) call farray_index_append('iphiuu',iphiuu)
       endif
 !
     endsubroutine rprint_hydro
@@ -6119,6 +6125,7 @@ module Hydro
       real, dimension (nx) :: prof_amp1, prof_amp2, local_Omega
       real, dimension (mz) :: prof_amp3
       real, dimension (my) :: prof_amp4
+      real, dimension (nz,3), save :: uumz_prof
       character (len=labellen) :: prof_diffrot
       real :: tmp, tmp2
       logical :: ldiffrot_test
@@ -6477,6 +6484,20 @@ module Hydro
           (uumxy(l1:l2,m,3)-ampl1_diffrot*local_Omega*x(l1:l2)*sinth(m))
       endif
 !
+!  Relax toward profiles read from file
+!
+      case ('uumz_profile')
+      if (.not.lcalc_uumeanz) then
+        call fatal_error("uumz_profile","you need to set lcalc_uumean=T in hydro_run_pars")
+      else
+        if (it == 1) then 
+          call read_uumz_profile(uumz_prof)
+        endif
+        df(l1:l2,m,n,iux)=df(l1:l2,m,n,iux)-tau_diffrot1*(uumz(n,1)-uumz_prof(n-nghost,1))
+        df(l1:l2,m,n,iuy)=df(l1:l2,m,n,iuy)-tau_diffrot1*(uumz(n,2)-uumz_prof(n-nghost,2))
+        df(l1:l2,m,n,iuz)=df(l1:l2,m,n,iuz)-tau_diffrot1*(uumz(n,3)-uumz_prof(n-nghost,3))
+      endif
+!
 !  no profile matches
 !
       case default
@@ -6484,6 +6505,62 @@ module Hydro
       endselect
 !
     endsubroutine impose_profile_diffrot
+!***********************************************************************
+    subroutine read_uumz_profile(uumz_prof)
+!
+!  Read radial profiles of horizontally averaged flows from file.
+!
+!  23-oct-18/pjk: added
+!
+      real, dimension(nz,3), intent(out) :: uumz_prof
+      integer, parameter :: nztotal=nz*nprocz
+      real, dimension(nz*nprocz) :: tmp1z,tmp2z,tmp3z
+      real :: var1,var2,var3
+      logical :: exist
+      integer :: stat
+!
+!  Read hcond and glhc and write into an array.
+!  If file is not found in run directory, search under trim(directory).
+!
+      inquire(file='uumz.dat',exist=exist)
+      if (exist) then
+        open(31,file='uumz.dat')
+      else
+        inquire(file=trim(directory)//'/uumz.ascii',exist=exist)
+        if (exist) then
+          open(31,file=trim(directory)//'/uumz.ascii')
+        else
+          call fatal_error('read_uumz_profile','*** error *** - no input file')
+        endif
+      endif
+!
+!  Read profiles.
+!
+!  Gravity in the z-direction
+!
+      if (lgravz) then
+        do n=1,nztotal
+          read(31,*,iostat=stat) var1,var2,var3
+          if (stat<0) exit
+          if (ip<5) print*,'uxmz, uymz, uzmz: ',var1,var2,var3
+          tmp1z(n)=var1
+          tmp2z(n)=var2
+          tmp3z(n)=var3
+        enddo
+!
+!  Assuming no ghost zones in uumz.dat.
+!
+        do n=n1,n2
+          uumz_prof(n-nghost,1)=tmp1z(ipz*nz+n-nghost)
+          uumz_prof(n-nghost,2)=tmp2z(ipz*nz+n-nghost)
+          uumz_prof(n-nghost,3)=tmp3z(ipz*nz+n-nghost)
+        enddo
+!
+        close(31)
+!
+      endif
+!
+    endsubroutine read_uumz_profile
 !***********************************************************************
     subroutine impose_velocity_ceiling(f)
 !

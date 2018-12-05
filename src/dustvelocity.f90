@@ -135,30 +135,26 @@ module Dustvelocity
       integer :: k, uud_tmp
       character(len=intlen) :: sdust
 !
-      do k=1,ndustspec
-        sdust='['//trim(itoa(k-1))//']'
-        if (ndustspec==1) sdust=''
-        call farray_register_pde('uud'//sdust,uud_tmp,vector=3)
-        iuud(k) = uud_tmp
-        iudx(k) = iuud(k)
-        iudy(k) = iuud(k)+1
-        iudz(k) = iuud(k)+2
-      enddo
-!
-!  Write dust index in short notation
-!
-      if (lroot .and. ndustspec/=1) then
-        open(3,file=trim(datadir)//'/index.pro', position='append')
-        write(3,*) 'nuud=',ndustspec
-        write(3,*) 'iuud=indgen('//trim(itoa(ndustspec))//')*3 + '//trim(itoa(iuud(1)))
-        close(3)
-      endif
-!
 !  Identify version number (generated automatically by SVN).
 !
       if (lroot) call svn_id( &
           "$Id$")
 !
+!  Write dust index in short notation
+!
+      if (ndustspec >= 1) then
+        call farray_index_append('nuud',ndustspec)
+      endif
+!
+      do k=1,ndustspec
+        sdust = ''
+        if (ndustspec > 1) sdust = itoa(k-1)
+        call farray_register_pde('uud'//trim(sdust),uud_tmp,vector=3)
+        iuud(k) = uud_tmp
+        iudx(k) = iuud(k)
+        iudy(k) = iuud(k)+1
+        iudz(k) = iuud(k)+2
+      enddo
 !
 !  Writing files for use with IDL.
 !
@@ -1714,21 +1710,7 @@ module Dustvelocity
       logical, optional :: lwrite
 !
       integer :: iname, inamez, inamexy, k
-      logical :: lwr
       character (len=intlen) :: sdust
-!
-!  Write information to index.pro that should not be repeated for i.
-!
-      lwr = .false.
-      if (present(lwrite)) lwr=lwrite
-!
-      if (lwr) then
-        write(3,*) 'ndustspec=',ndustspec
-        write(3,*) 'iuud=',iuud
-        write(3,*) 'iudx=',iudx
-        write(3,*) 'iudy=',iudy
-        write(3,*) 'iudz=',iudz
-      endif
 !
 !  Reset everything in case of reset.
 !

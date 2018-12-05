@@ -19,6 +19,7 @@ module Particles_mass
   use General, only: keep_compiler_quiet
   use Messages
   use Particles_cdata
+  use Particles_sub
 !
   implicit none
 !
@@ -42,16 +43,7 @@ module Particles_mass
 !
 ! Index for particle mass.
 !
-      imp = npvar + 1
-      npvar = npvar + 1
-      pvarname(imp) = 'imp'
-!
-! Check that the fp and dfp arrays are big enough.
-!
-      chknpvar: if (npvar > mpvar) then
-        if (lroot) print *, 'npvar = ', npvar, ', mpvar = ', mpvar
-        call fatal_error('register_particles_mass', 'npvar > mpvar')
-      endif chknpvar
+      call append_npvar('imp',imp)
 !
     endsubroutine register_particles_mass
 !***********************************************************************
@@ -185,6 +177,7 @@ module Particles_mass
 ! 04-jul-17/ccyang: coded
 !
       use Diagnostics
+      use FArrayManager, only: farray_index_append
 !
       logical, intent(in) :: lreset
       logical, intent(in), optional :: lwrite
@@ -196,7 +189,7 @@ module Particles_mass
 !
       lwr = .false.
       if (present(lwrite)) lwr = lwrite
-      if (lwr) write(3,*) 'imp = ', imp
+      if (lwr) call farray_index_append('imp', imp)
 !
 ! Reset diagnostic variables if requested.
 !

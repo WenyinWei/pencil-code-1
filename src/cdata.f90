@@ -267,6 +267,7 @@ module Cdata
   logical :: lenergy=.false.
   logical :: ladv_der_as_aux=.false.
   logical :: lghostfold_usebspline = .false.
+  logical :: lcooling_ss_mz = .false.
 !
 !  Variable indices (default zero, set later by relevant physics modules).
 !
@@ -294,8 +295,9 @@ module Cdata
   integer :: iaa=0,iax=0,iay=0,iaz=0
   integer :: ispx=0,ispy=0,ispz=0
   integer :: ifcr=0,ifcrx=0,ifcry=0,ifcrz=0
-  integer :: ihij,igij
+  integer :: ihij=0,igij=0
   integer :: ihhT=0,ihhX=0,iggT=0,iggX=0,iStressT=0,iStressX=0,iStress_ij=0
+  integer :: ihhTim=0,ihhXim=0,iggTim=0,iggXim=0,iStressTim=0,iStressXim=0
   integer :: iaatest=0,iaztestpq=0,iaxtest=0,iaytest=0,iaztest=0
   integer :: iuutest=0,iuztestpq=0,ihhtestpq=0
   integer :: iqx=0,iqy=0,iqz=0,iqq=0
@@ -324,6 +326,7 @@ module Cdata
   integer :: igu11=0,igu12=0,igu13=0
   integer :: igu21=0,igu22=0,igu23=0
   integer :: igu31=0,igu32=0,igu33=0
+  integer :: iogTTx=0, iogTTy=0, iogTTz=0
   integer, dimension(ndustspec) :: iuud=0,iudx=0,iudy=0,iudz=0
   integer, dimension(ndustspec) :: ilnnd=0, ind=0,imd=0,imi=0,idc=0,ilndc=0
   integer, dimension(ndustspec,ndustspec0) :: idcj=0,ilndcj=0
@@ -390,7 +393,7 @@ module Cdata
 !  Variables related to calculating diagnostic output.
 !
   character :: comment_char='#'
-  integer :: it1=10,it1d=impossible_int
+  integer :: it1=10,it1start=0,it1d=impossible_int
   integer :: nname=0,nnamev=0,nnamexy=0,nnamexz=0,nnamerz=0
   integer :: nnamez=0,nnamey=0,nnamex=0,nnamer=0
   integer :: nname_sound=0, ncoords_sound=0
@@ -506,8 +509,8 @@ module Cdata
   logical :: vel_phispec=.false.,mag_phispec=.false.,uxj_phispec=.false.,vec_phispec=.false.
   logical :: uxy_spec=.false., bxy_spec=.false., jxbxy_spec=.false.
   integer, parameter :: n_xy_specs_max=10,nk_max=10, nz_max=10
-  character (LEN=40) :: xy_spec=''
-  character (LEN=10), dimension(n_xy_specs_max) :: xy_specs=''
+  character (LEN=labellen*4) :: xy_spec=''
+  character (LEN=labellen), dimension(n_xy_specs_max) :: xy_specs=''
   logical :: EP_spec=.false.
   logical :: ro_spec=.false.,TT_spec=.false.,ss_spec=.false.,cc_spec=.false.,cr_spec=.false.
   logical :: sp_spec=.false.
@@ -541,7 +544,7 @@ module Cdata
   real :: Udrift_bc=0.
   character (len=2*bclen+1), dimension(mcom) :: bcx='p',bcy='p',bcz='p'
   character (len=bclen), dimension(mcom,2) :: bcx12='', bcy12='', bcz12=''
-  character (len=10), dimension(mfarray) :: varname
+  character (len=labellen), dimension(mfarray) :: varname
   character (len=labellen) :: force_lower_bound='',force_upper_bound=''
 !
 !  Parameters for freezing boundary zones.

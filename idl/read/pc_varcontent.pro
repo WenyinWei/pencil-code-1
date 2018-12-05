@@ -100,6 +100,10 @@ indices = [ $
   { name:'iggX', label:'ggX', dims:1 }, $
   { name:'ihhT', label:'hhT', dims:1 }, $
   { name:'ihhX', label:'hhX', dims:1 }, $
+  { name:'iggTim', label:'ggTim', dims:1 }, $
+  { name:'iggXim', label:'ggXim', dims:1 }, $
+  { name:'ihhTim', label:'hhTim', dims:1 }, $
+  { name:'ihhXim', label:'hhXim', dims:1 }, $
   { name:'ihij', label:'hij', dims:6 }, $
   { name:'igij', label:'gij', dims:6 }, $
   { name:'ip11', label:'Polymer Tensor 11', dims:1 }, $
@@ -163,8 +167,8 @@ indices_aux = [ $
   { name:'iyH', label:'Hydrogen ionization fraction', dims:1 }, $
   { name:'ishock', label:'Shock profile', dims:1 }, $
   { name:'ishock_perp', label:'B-perpendicular shock profile', dims:1 }, $
-  { name:'icooling', label:'Cooling term', dims:1 }, $
-  { name:'icooling2', label:'Applied cooling term', dims:1 }, $
+  { name:'icooling', label:'ISM cooling term', dims:1 }, $
+  { name:'inetheat', label:'Net applied ISM heating term', dims:1 }, $
   { name:'idetonate', label:'Detonation energy', dims:1 }, $
   { name:'inp', label:'Particle number', dims:1 }, $
   { name:'iphiuu', label:'Potential of curl-free part of velocity field', dims:1 }, $
@@ -181,9 +185,11 @@ indices_aux = [ $
   { name:'iglhc', label:'Gradient of thermal conductivity', dims:3 }, $
   { name:'ippaux', label:'Auxiliary pressure', dims:1 }, $
   { name:'ispecaux', label:'Special auxiliary variable', dims:1 }, $
-  { name:'iStress_ij', label:'Str', dims:6 }, $
-  { name:'iStressT', label:'StT', dims:1 }, $
-  { name:'iStressX', label:'StX', dims:1 }, $
+  { name:'iStr', label:'Str', dims:6 }, $
+  { name:'iStT', label:'StT', dims:1 }, $
+  { name:'iStX', label:'StX', dims:1 }, $
+  { name:'iStTim', label:'StTim', dims:1 }, $
+  { name:'iStXim', label:'StXim', dims:1 }, $
   { name:'ipsi', label:'Streamfunction', dims:1 }, $
   { name:'isigma', label:'Column density', dims:1 }, $
   { name:'imdot', label:'Mass accretion rate', dims:1 }, $

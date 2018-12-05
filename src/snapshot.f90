@@ -38,8 +38,8 @@ module Snapshot
       use General, only: get_range_no, indgen
       use Boundcond, only: boundconds_x, boundconds_y, boundconds_z
       use General, only: safe_character_assign
-      use IO, only: output_snap, log_filename_to_file, lun_output, wgrid
-      use Sub, only: read_snaptime, update_snaptime, wdim
+      use IO, only: output_snap, log_filename_to_file, lun_output, wgrid, wdim
+      use Sub, only: read_snaptime, update_snaptime
       use Grid, only: save_grid, coords_aux
       use Messages, only: warning
 !
@@ -153,13 +153,9 @@ module Snapshot
 !  At first call, write downsampled grid and its global and local dimensions
 !
           call wgrid('grid_down.dat',iex+nghost,iey+nghost,iez+nghost)
-          call wdim(trim(directory)//'/dim_down.dat',iex+nghost,iey+nghost,iez+nghost,mvar_down,maux_down)
-          if (lroot) call wdim(trim(datadir)//'/dim_down.dat', &
-                               ceiling(float(nxgrid)/isx)+2*nghost, &
-                               ceiling(float(nygrid)/isy)+2*nghost, &
-                               ceiling(float(nzgrid)/isz)+2*nghost, &
-                               mvar_down,maux_down, &
-                               lglobal=.true.)
+          call wdim('dim_down.dat', iex+nghost, iey+nghost, iez+nghost, &
+              ceiling(float(nxgrid)/isx)+2*nghost, ceiling(float(nygrid)/isy)+2*nghost, ceiling(float(nzgrid)/isz)+2*nghost, &
+              mvar_down, maux_down)
           lfirst_call=.false.
         endif
 !
@@ -419,6 +415,9 @@ module Snapshot
         call input_snap_finalize()
       endif
 !
+!AB: I think we can move the repeated lines with lpersist and
+!AB: input_snap_finalize to here.
+!
 !  Read data using lnrho, and now convert to rho.
 !  This assumes that one is now using ldensity_nolog=T.
 !
@@ -511,33 +510,10 @@ module Snapshot
 !
       if (present(lwrite_only)) llwrite_only=lwrite_only
       ldo_all=.not.llwrite_only
-!<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-!     !lspec=.true. !AB: (Bingert introduced this in 2011 to prevent
-!                   !AB: lspec not being defined. This is now no longer
-!                   !AB: an issue since read_snaptime is now called from run.
-!!
-!!  Output snapshot in 'tpower' time intervals.
-!!  File keeps the information about time of last snapshot.
-!!
-!      file=trim(datadir)//'/tspec.dat'
-!!
-!!  At first call, need to initialize tspec.
-!!  tspec calculated in read_snaptime, but only available to root processor.
-!!
-!      if (ldo_all .and. lfirst_call) then
-!        call read_snaptime(file,tspec,nspec,dspec,t)
-!        lfirst_call=.false.
-!      endif
-!<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 !
 !  Check whether we want to output power snapshot. If so, then
 !  update ghost zones for var.dat (cheap, since done infrequently).
 !
-  !AB: the following 2 lines are now moved to run.f90, because we need
-  !AB: advance notice when spectra will be called, so relevant parts of
-  !AB: the f-array can be updated at those times.
-  !   if (ldo_all) &
-  !        call update_snaptime(file,tspec,nspec,dspec,t,lspec)
       if (lspec.or.llwrite_only) then
         if (.not.lstart.and.lgpu) call copy_farray_from_GPU(f)
         if (ldo_all)  call update_ghosts(f)

@@ -175,10 +175,10 @@ module EquationOfState
         nn1=1;  nn2=mz
       endif
 
-      if (.not.ldensity) then
-        call put_shared_variable('rho0',rho0,caller='initialize_eos')
-        call put_shared_variable('lnrho0',lnrho0)
-      endif
+!      if (.not.ldensity) then
+!        call put_shared_variable('rho0',rho0,caller='initialize_eos')
+!        call put_shared_variable('lnrho0',lnrho0)
+!      endif
       if (lchemistry) call put_shared_variable('mu1_full',mu1_full,caller='initialize_eos')
 !
     endsubroutine initialize_eos
@@ -291,6 +291,9 @@ module EquationOfState
         case (ieosvar_rho+ieosvar_cs2)
           if (lroot) print*,"select_eos_variable: Using rho and cs2",iproc
           ieosvars=irho_cs2
+        case (ieosvar_rho+ieosvar_TT)
+          if (lroot) print*, 'select_eos_variable: Using rho and TT'
+          ieosvars=irho_TT
         case default
           if (lroot) print*,"select_eos_variable: Thermodynamic variable combination, ieosvar_selected= ",ieosvar_selected
           call fatal_error("select_eos_variable", &
@@ -329,6 +332,8 @@ module EquationOfState
 !  Write slices for animation of Eos variables.
 !
 !  26-jul-06/tony: coded
+
+      use Slices_methods, only: assign_slices_scal
 !
       real, dimension (mx,my,mz,mfarray) :: f
       type (slice_data) :: slices
@@ -339,13 +344,25 @@ module EquationOfState
 !
 !  Temperature.
 !
-        case ('lnTT')
-          slices%yz =f(ix_loc,m1:m2,n1:n2,ilnTT)
-          slices%xz =f(l1:l2,iy_loc,n1:n2,ilnTT)
-          slices%xy =f(l1:l2,m1:m2,iz_loc,ilnTT)
-          slices%xy2=f(l1:l2,m1:m2,iz2_loc,ilnTT)
-          if (lwrite_slice_xy3) slices%xy3=f(l1:l2,m1:m2,iz3_loc,ilnTT)
-          if (lwrite_slice_xy4) slices%xy4=f(l1:l2,m1:m2,iz4_loc,ilnTT)
+        case ('lnTT'); call assign_slices_scal(slices,f,ilnTT)
+        case ('pp')
+          if (ldensity_nolog .or. ltemperature_nolog) &
+              call fatal_error('get_slices_eos',&
+              'pp not implemented for ldensity_nolog .or. ltemperature_nolog')
+          if (lwrite_slice_yz) slices%yz=Rgas*exp(f(ix_loc,m1:m2,n1:n2,ilnTT)+f(ix_loc,m1:m2,n1:n2,ilnrho)) &
+                                             *mu1_full(ix_loc,m1:m2,n1:n2)
+          if (lwrite_slice_xz) slices%xz=Rgas*exp(f(l1:l2,iy_loc,n1:n2,ilnTT)+f(l1:l2,iy_loc,n1:n2,ilnrho)) &
+                                             *mu1_full(l1:l2,iy_loc,n1:n2)
+          if (lwrite_slice_xz2) slices%xz=Rgas*exp(f(l1:l2,iy2_loc,n1:n2,ilnTT)+f(l1:l2,iy2_loc,n1:n2,ilnrho)) &
+                                              *mu1_full(l1:l2,iy2_loc,n1:n2)
+          if (lwrite_slice_xy) slices%xy=Rgas*exp(f(l1:l2,m1:m2,iz_loc,ilnTT)+f(l1:l2,m1:m2,iz_loc,ilnrho)) &
+                                             *mu1_full(l1:l2,m1:m2,iz_loc)
+          if (lwrite_slice_xy2) slices%xy2=Rgas*exp(f(l1:l2,m1:m2,iz2_loc,ilnTT)+f(l1:l2,m1:m2,iz2_loc,ilnrho)) &
+                                               *mu1_full(l1:l2,m1:m2,iz2_loc)
+          if (lwrite_slice_xy3) slices%xy3=Rgas*exp(f(l1:l2,m1:m2,iz3_loc,ilnTT)+f(l1:l2,m1:m2,iz3_loc,ilnrho)) &
+                                               *mu1_full(l1:l2,m1:m2,iz3_loc)
+          if (lwrite_slice_xy4) slices%xy4=Rgas*exp(f(l1:l2,m1:m2,iz4_loc,ilnTT)+f(l1:l2,m1:m2,iz4_loc,ilnrho)) &
+                                               *mu1_full(l1:l2,m1:m2,iz4_loc)
           slices%ready=.true.
 !
       endselect
@@ -361,9 +378,8 @@ module EquationOfState
 !  EOS is a pencil provider but evolves nothing so it is unlokely that
 !  it will require any pencils for it's own use.
 !
-
-      lpenc_requested(i_ghhk) = .true.
       lpenc_requested(i_cv) = .true.
+      lpenc_requested(i_cp) = .true.
       lpenc_requested(i_cv1) = .true.
       lpenc_requested(i_cp1) = .true.
 !
@@ -392,6 +408,7 @@ module EquationOfState
       lpenc_requested(i_glnTT)=.true.
 !
       lpenc_requested(i_cs2) = .true.
+!      lpenc_requested(i_ee) = .true.
 !
     endsubroutine pencil_criteria_eos
 !***********************************************************************
@@ -434,8 +451,6 @@ module EquationOfState
       logical, dimension(npencils) :: lpenc_loc
       real, dimension(nx,3) :: glnDiff_full_add, glncp
       real, dimension(nx) :: D_th, R_mix
-!      real, dimension (mx,my,mz) :: mu1_full
-      real, dimension(nx) :: del2TT, gradTgradT
 !
       intent(in) :: lpenc_loc
       intent(inout) :: p
@@ -444,10 +459,10 @@ module EquationOfState
 !
 !! Cp/Cv pencils
 !
-          p%cp =  f(l1:l2,m,n,icp)
-          p%cv = 0.
+          if (lpencil(i_cp)) p%cp =  f(l1:l2,m,n,icp)
 !
           if (lpencil(i_cv))  then
+            p%cv = 0.
             if (Cp_const < impossible) then
               do k = 1,nchemspec
                 p%cv = p%cv + (Cp_const-Rgas)/species_constants(k,imass)*f(l1:l2,m,n,ichemspec(k))
@@ -458,7 +473,6 @@ module EquationOfState
                 R_mix = R_mix + Rgas/species_constants(k,imass)*f(l1:l2,m,n,ichemspec(k))
               enddo
               p%cv = p%cp - R_mix 
-!              call fatal_error('calc_pencils_chemistry','For simplified chemistry Cp_const must be given')           
             endif
             if (lpencil(i_cv1)) p%cv1 = 1./p%cv
             if (lpencil(i_cp1)) p%cp1 = 1./p%cp
@@ -496,55 +510,31 @@ module EquationOfState
 !
 !  Temperature laplacian and gradient
 !
+      if (lpenc_loc(i_gTT)) call grad(f,iTT,p%gTT)
       if (lpenc_loc(i_glnTT)) then
         if (ltemperature_nolog) then
-          call grad(f,iTT,p%glnTT)
-          p%glnTT(:,1)=p%glnTT(:,1)/p%TT(:)
-          p%glnTT(:,2)=p%glnTT(:,2)/p%TT(:)
-          p%glnTT(:,3)=p%glnTT(:,3)/p%TT(:)
+          p%glnTT(:,1)=p%gTT(:,1)/p%TT(:)
+          p%glnTT(:,2)=p%gTT(:,2)/p%TT(:)
+          p%glnTT(:,3)=p%gTT(:,3)/p%TT(:)
         else
           call grad(f,ilnTT,p%glnTT)
         endif
       endif
 !
-      if (ltemperature_nolog) then
-        if (lpenc_loc(i_gTT)) call grad(f,iTT,p%gTT)
-! del2TT is computed in calc_heatcond_chemistry, here only del2lnTT which is needed for pressure Laplacian 
-          call dot2(p%gTT,gradTgradT) 
-          call del2(f,iTT,del2TT)
-          p%del2lnTT = -1./p%TT/p%TT*gradTgradT+1./p%TT*del2TT
-!        call fatal_error('calc_pencils_eos',&
-!              'del2lnTT is not correctly implemented - this must be fixed!')
-        else
-          if (lpenc_loc(i_del2lnTT)) call del2(f,ilnTT,p%del2lnTT)
+      if (lpenc_loc(i_del2lnTT)) then
+        if (.not. ltemperature_nolog) then
+          call del2(f,ilnTT,p%del2lnTT)
+        endif
       endif
-
 !
 ! Viscosity of a mixture
 !
       if (lpencil(i_nu)) then
           p%nu = f(l1:l2,m,n,iviscosity)
-!print*,'p%nu',p%nu
         if (lpencil(i_gradnu)) then
           call grad(f(:,:,:,iviscosity),p%gradnu)
-!print*,'p%gradnu',p%gradnu(:,1)
         endif
       endif
-!
-! p%ghhk moved from chemistry to eos as it depends on p%cp
-!
-!      if (lpencil(i_ghhk)) then
-!        do k = 1,nchemspec
-!          if (species_constants(k,imass) > 0.)  then
-!            do i = 1,3
-! In the chemistry module this was coded as:
-! p%ghhk(:,i,k) = (cv_R_spec_full(l1:l2,m,n,k)+1)/species_constants(k,imass)*Rgas*p%glnTT(:,i)*T_loc(:)
-!              p%ghhk(:,i,k) = p%cp*p%glnTT(:,i)*p%TT
-!            enddo
-!          endif
-!print*,'p%hhk_full',k,'************',p%ghhk(:,1,k)
-!        enddo
-!      endif
 !
 ! Calculate thermal conductivity & diffusivity
 !
@@ -554,7 +544,6 @@ module EquationOfState
          call grad(f(:,:,:,icp),p%glncp)
          do i = 1,3
            p%glncp(:,i) = p%glncp(:,i)*p%cp1
-           ! Assuming Le = 1
            glnDiff_full_add(:,i) = p%gradnu(:,i)/p%nu
            p%glambda(:,i) = p%lambda*(p%glnrho(:,i)+glnDiff_full_add(:,i) + p%glncp(:,i)) 
          enddo
@@ -572,7 +561,7 @@ module EquationOfState
 !
       if (lpenc_loc(i_rho1gpp)) then
         do i=1,3
-          p%rho1gpp(:,i) = p%pp/p%rho(:) &
+          p%rho1gpp(:,i) = p%pp*p%rho1(:) &
                *(p%glnrho(:,i)+p%glnTT(:,i)+p%gmu1(:,i)/p%mu1(:))
         enddo
       endif
